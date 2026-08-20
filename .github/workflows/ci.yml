@@ -57,7 +57,9 @@ jobs:
   detection:
     name: bot-detection gate
     runs-on: ubuntu-latest
-    # Depends on third-party detector sites, so it must not block a PR.
+    # Depends on third-party detector sites AND on the runner environment: a
+    # datacenter IP with no GPU legitimately fails rows that pass on a normal
+    # workstation. Informational, never blocking.
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     continue-on-error: true
     steps:

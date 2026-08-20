@@ -112,6 +112,26 @@ Plain headless Chrome fails four sannysoft rows (`HEADCHR_UA`, `CHR_MEMORY`, Web
 
 An unreachable detector counts as **SKIP**, never as a pass, and the gate requires three reachable passes — so a day when the test sites are down cannot be mistaken for success.
 
+### Environment matters more than patching
+
+The identical code, measured in two places:
+
+| | this workstation | GitHub Actions runner |
+| --- | --- | --- |
+| IP | residential | datacenter |
+| GPU | real (NVIDIA) | none → SwiftShader |
+| `bot.sannysoft.com` | 31 passed, **0 failed** | 30 passed, 1 failed (`WebGL Renderer`) |
+| `bot-detector.rebrowser.net` | 6 green, **0 red** | 6 green, **0 red** |
+| `deviceandbrowserinfo.com` | **`isBot: false`** | **`isBot: true`** (`hasSuspiciousWeakSignals`) |
+
+Every CDP-level signal stays clean in both — that part is code, and the code is
+right. What flips the verdict is the environment: a datacenter ASN plus software
+rendering trips a weak-signal composite that no amount of fingerprint patching
+addresses.
+
+This is the honest shape of the problem. Hardening the browser removes the
+*trivial* tells. Where you run it decides the rest.
+
 ### What the hardening does, and why
 
 Every item came from a detector telling us we were wrong:
