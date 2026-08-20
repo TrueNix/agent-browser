@@ -1,0 +1,15 @@
+node_modules/
+.npmcache/
+*.log
+npm-debug.log*
+
+# CLI output artifacts
+kitesurf.png
+kitesurf.pdf
+kitesurf-screenshot.png
+*.tmp
+.tmp-*
+
+.DS_Store
+.idea/
+.vscode/

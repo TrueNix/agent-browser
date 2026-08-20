@@ -1,0 +1,68 @@
+{
+  "name": "@truenix/agent-browser",
+  "version": "1.0.0",
+  "description": "A hardened local browser for AI agents. Zero-dependency CDP client, CLI, MCP server and DSH/Cordis plugin. Clears standard bot-detection fingerprint checks; token-efficient Markdown extraction.",
+  "keywords": [
+    "browser",
+    "ai-agents",
+    "mcp",
+    "model-context-protocol",
+    "cdp",
+    "chrome-devtools-protocol",
+    "headless-chrome",
+    "web-scraping",
+    "markdown",
+    "bot-detection",
+    "anti-detection",
+    "stealth",
+    "fingerprint",
+    "zero-dependency",
+    "cordis",
+    "dsh"
+  ],
+  "license": "MIT",
+  "author": "TrueNix",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TrueNix/agent-browser.git"
+  },
+  "homepage": "https://github.com/TrueNix/agent-browser#readme",
+  "bugs": {
+    "url": "https://github.com/TrueNix/agent-browser/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "agent-browser": "src/cli.mjs",
+    "agent-browser-mcp": "src/mcp-bin.mjs"
+  },
+  "main": "src/client.mjs",
+  "exports": {
+    ".": "./src/client.mjs",
+    "./client": "./src/client.mjs",
+    "./browser": "./src/browser.mjs",
+    "./extract": "./src/extract.mjs",
+    "./mcp": "./src/mcp.mjs",
+    "./ws": "./src/ws.mjs",
+    "./cordis": "./cordis/plugin.mjs"
+  },
+  "files": [
+    "src",
+    "cordis",
+    "README.md",
+    "CREDITS.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/smoke.mjs",
+    "test:bot": "node test/bot-detection.mjs",
+    "mcp": "node src/cli.mjs mcp",
+    "probe": "node src/cli.mjs probe"
+  },
+  "dependencies": {}
+}

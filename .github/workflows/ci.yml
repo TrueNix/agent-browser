@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  offline:
+    name: offline checks (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: syntax check every module
+        run: |
+          for file in src/*.mjs cordis/*.mjs test/*.mjs; do
+            echo "checking $file"
+            node --check "$file"
+          done
+      - name: assert zero runtime dependencies
+        run: |
+          node -e '
+            const pkg = require("./package.json");
+            const deps = Object.keys(pkg.dependencies || {});
+            if (deps.length > 0) {
+              console.error("expected zero dependencies, found: " + deps.join(", "));
+              process.exit(1);
+            }
+            console.log("zero dependencies confirmed");
+          '
+      - name: offline test suite
+        run: npm test
+        env:
+          AGENT_BROWSER_SKIP_NETWORK: '1'
+      - name: cli help works
+        run: node src/cli.mjs --help
+
+  browser:
+    name: live browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: full smoke suite (runner has Chrome preinstalled)
+        run: npm test
+
+  detection:
+    name: bot-detection gate
+    runs-on: ubuntu-latest
+    # Depends on third-party detector sites, so it must not block a PR.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: fingerprint detection gate
+        run: npm run test:bot
