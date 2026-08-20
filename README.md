@@ -90,7 +90,7 @@ const md = await withBrowser({}, async (session) => {
 **One-liner (recommended — auto-wires when you *mean* DSH):**
 
 ```bash
-npx -y @truenix/agent-browser install          # edits ~/.dsh/profiles/web/cordis.patch.yml + package.json, then pnpm install
+npx -y @truenix/agent-browser install          # adds the bundle to ~/.dsh/profiles/web/package.json, then pnpm install (the mount ships in the package's own cordis.patch.yml layer)
 # npx -y @truenix/agent-browser install --profile web --dry-run  # preview
 # npx -y @truenix/agent-browser uninstall      # remove again
 ```
