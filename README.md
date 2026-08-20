@@ -26,6 +26,21 @@ Feeding an agent raw HTML wastes most of its context. Measured on real pages:
 
 And a browser that announces itself as automation gets blocked, degraded, or served different content — which quietly corrupts whatever the agent concluded.
 
+### Heavy-site benchmark (live, `curl` vs `markdown`)
+
+| site | raw HTML | markdown | saving |
+| --- | --- | --- | --- |
+| `en.wikipedia.org/wiki/WebAssembly` | 623 kB | **97 kB** | 6.4× |
+| `react.dev` | 272 kB | **11 kB** | 23.8× |
+| `nextjs.org` | 320 kB | **10 kB** | 31.7× |
+| `github.com/trending` | 646 kB | **69 kB** | 9.3× |
+| `apple.com` | 254 kB | **4.4 kB** | 57.4× |
+
+![Heavy-site benchmark](./heavy-benchmark.png)
+
+![Token cost: Raw HTML vs agent-browser](./token-cost-graph.png)
+*Token cost per YC check (HN + YC Blog, 45.5k → 2.9k tokens, +500 out) — real pricing Aug 2026: Anthropic Sonnet $3/$15, Opus $5/$25, Haiku $1/$5 • OpenAI GPT-4o $2.50/$10*
+
 ## Install
 
 ### As an MCP server
