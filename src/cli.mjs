@@ -9,6 +9,7 @@ import { writeFileSync } from 'node:fs';
 import { withBrowser, withSession } from './client.mjs';
 import { findBrowser, hasGpu, browserVersion } from './browser.mjs';
 import { startMcpServer } from './mcp.mjs';
+import { install as installDsh, uninstall as uninstallDsh } from './install.mjs';
 
 const USAGE = `agent-browser — a hardened local browser for AI agents
 
@@ -26,6 +27,8 @@ Commands:
   eval <url> <expr>       Evaluate a JS expression in the page
   probe                   Report browser, GPU and capability flags
   mcp                     Run as an MCP server over stdio
+  install [--profile web] Auto-wire into a DSH profile (edits cordis.patch.yml + package.json)
+  uninstall [--profile web] Remove from a DSH profile
 
 Options:
       --headful           Show the browser window (default: headless)
@@ -79,6 +82,8 @@ function parseArgs(argv) {
       }
       case '--endpoint': opts.endpoint = take(); break;
       case '--timeout': opts.timeoutMs = Number(take()); break;
+      case '--profile': opts.profile = take(); break;
+      case '--dry-run': opts.dryRun = true; break;
       default:
         if (arg.startsWith('-')) throw new Error(`unknown option: ${arg}`);
         opts._.push(arg);
@@ -126,6 +131,20 @@ async function main() {
 
   if (opts.help || !command) { process.stdout.write(USAGE); return 0; }
   if (command === 'mcp') { await startMcpServer(); return 0; }
+  if (command === 'install') {
+    const profile = opts.profile || rest[0] || 'web';
+    const dryRun = Boolean(opts.dryRun);
+    const r = installDsh({ profile, dryRun });
+    if (dryRun) process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
+    else process.stdout.write(`[agent-browser] installed to DSH profile "${profile}" — restart dsh to load browser_* tools\n`);
+    return 0;
+  }
+  if (command === 'uninstall') {
+    const profile = opts.profile || rest[0] || 'web';
+    uninstallDsh({ profile });
+    process.stdout.write(`[agent-browser] uninstalled from DSH profile "${profile}"\n`);
+    return 0;
+  }
 
   if (command === 'probe') {
     const binary = findBrowser();

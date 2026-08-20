@@ -72,10 +72,42 @@ const md = await withBrowser({}, async (session) => {
 
 ### As a DSH / Cordis plugin
 
+**One-liner (recommended — auto-wires when you *mean* DSH):**
+
+```bash
+npx -y @truenix/agent-browser install          # edits ~/.dsh/profiles/web/cordis.patch.yml + package.json, then pnpm install
+# npx -y @truenix/agent-browser install --profile web --dry-run  # preview
+# npx -y @truenix/agent-browser uninstall      # remove again
+```
+
+Restart `dsh` — `browser_markdown`, `browser_text`, `browser_links`, `browser_evaluate`, `browser_screenshot`, `browser_probe` appear as native tools. No handler runs on plain `npm install`; intentional `install` is required.
+
+**Manual (if you prefer to edit the composition yourself):**
+
+```bash
+npm i -g @truenix/agent-browser
+# or inside the harness checkout: pnpm add @truenix/agent-browser
+```
+Requires Node ≥ 18 and a Chrome/Chromium install. Then add to the *host* composition (tools registry lives on host, not per-agent):
+
+```yaml
+# ~/.dsh/profiles/web/cordis.patch.yml  — persists for every web session
+- insert:
+  - id: agent-browser
+    name: '@truenix/agent-browser/cordis'
+    config:
+      timeoutMs: 180000   # per-tool call budget; default respects AGENT_BROWSER_BIN / ENDPOINT
+      # cli: 'npx -y @truenix/agent-browser'  # override only if needed
+```
+
+Short form (when the composition already wraps `insert`):
+
 ```yaml
 - '@truenix/agent-browser/cordis':
     timeoutMs: 180000
 ```
+
+Env overrides: `AGENT_BROWSER_BIN` (Chrome binary), `AGENT_BROWSER_ENDPOINT` (attach to long-lived browser via `--endpoint`), or `config.cli`.
 
 ## CLI
 
