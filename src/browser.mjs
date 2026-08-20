@@ -99,10 +99,17 @@ function baseFlags({ width, height, lang, gpu, headless, profileDir, blockImages
   if (headless) flags.push('--headless=new');
   if (blockImages) flags.push('--blink-settings=imagesEnabled=false');
 
+  // NEVER pass --disable-gpu. It does not merely drop hardware acceleration, it
+  // removes WebGL ENTIRELY: getContext('webgl') returns null. That is both a
+  // functional regression (canvas/WebGL pages break) and a detection signal,
+  // because every real browser exposes WebGL. On a GPU-less machine — CI, a
+  // container, a VPS — software rendering is the correct answer, not no
+  // rendering. --enable-unsafe-swiftshader keeps the software fallback
+  // permitted on newer Chrome, which otherwise refuses it.
   if (gpu) {
-    flags.push('--use-gl=angle', '--use-angle=gl-egl', '--enable-gpu', '--ignore-gpu-blocklist');
+    flags.push('--use-gl=angle', '--use-angle=gl-egl', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader');
   } else {
-    flags.push('--disable-gpu');
+    flags.push('--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader');
   }
 
   if (process.getuid && process.getuid() === 0) flags.push('--no-sandbox');
