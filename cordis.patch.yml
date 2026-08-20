@@ -1,0 +1,11 @@
+# dsh.bundle.patch layer for @truenix/agent-browser.
+#
+# When this package is listed in a profile's `dsh.profile.bundles` (added by
+# `npx agent-browser install`), dsh boot merges THIS patch: a single `insert`
+# of the plugin row. Do not also keep a manual agent-browser mount line in the
+# profile's own cordis.patch.yml — that would double-mount the tools.
+- insert:
+    - id: agent-browser
+      name: '@truenix/agent-browser/cordis'
+      config:
+        timeoutMs: 180000

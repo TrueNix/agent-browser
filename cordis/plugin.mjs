@@ -27,6 +27,9 @@
 
 export const name = 'agent-browser';
 
+/** Services injected into this plugin's fiber by the cordis loader. */
+export const inject = ['shell', 'tools'];
+
 /** A rendered page is routinely >100 kB of Markdown; do not let the cap eat it. */
 const STDOUT_MAX_BYTES = 4_000_000;
 
@@ -126,13 +129,16 @@ export function quote(value) {
  * @param {{cli?: string, timeoutMs?: number}} [config]
  */
 export function apply(ctx, config = {}) {
-  const shell = ctx.get('shell');
-  const tools = ctx.get('tools');
+  // Services arrive via the `inject` array above, not ctx.get(): the loader
+  // only exposes declared services on the fiber context.
+  const shell = ctx.shell;
+  const tools = ctx.tools;
+  // Optional service, read like dsh-tool-bash does — never declared in inject.
+  const sandboxPolicy = typeof ctx.get === 'function' ? ctx.get('sandboxPolicy') : undefined;
   if (shell === undefined || tools === undefined) {
     console.error('[agent-browser] shell or tools service unavailable; no tools registered');
     return;
   }
-  const sandboxPolicy = ctx.get('sandboxPolicy');
   const cli = config.cli ?? process.env.AGENT_BROWSER_CLI ?? 'npx -y @truenix/agent-browser';
   const timeoutMs = config.timeoutMs ?? 180000;
 
@@ -170,4 +176,7 @@ export function apply(ctx, config = {}) {
   console.log(`[agent-browser] registered ${TOOL_SPECS.length} local browser tools via "${cli}"`);
 }
 
-export default { name, apply };
+// NOTE: no default export. The cordis loader's unwrapExports() prefers
+// exports.default when present; a `{ name, apply }` default WITHOUT `inject`
+// would shadow the module-level `inject` export and every ctx.<service> read
+// would throw "cannot get property X without inject".

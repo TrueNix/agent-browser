@@ -54,10 +54,16 @@
   "files": [
     "src",
     "cordis",
+    "cordis.patch.yml",
     "README.md",
     "CREDITS.md",
     "LICENSE"
   ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "scripts": {
     "test": "node test/smoke.mjs",
     "test:bot": "node test/bot-detection.mjs",

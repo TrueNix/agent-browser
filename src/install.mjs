@@ -20,19 +20,17 @@ function ensurePatch(cordisPatchPath) {
   // If file doesn't end with newline, normalize
   if (raw && !raw.endsWith('\n')) raw += '\n';
 
-  // Idempotent: if already has agent-browser, skip
-  if (raw.includes('agent-browser')) return { changed: false, raw };
-
-  const snippet = `- insert:
-  - id: agent-browser
-    name: '@truenix/agent-browser/cordis'
-    config:
-      timeoutMs: 180000
-`;
-  // Preserve header comment if exists
-  const next = raw + (raw.endsWith('\n\n') || raw === '' ? '' : '\n') + snippet;
-  writeFileSync(cordisPatchPath, next);
-  return { changed: true, raw: next };
+  // The mount now comes from the package's own cordis.patch.yml (dsh.bundle
+  // layer), so NO manual insert goes into the profile file. A legacy manual
+  // mount left by older installers would double-mount id `agent-browser`
+  // ("duplicate prefix route") — strip it as a migration.
+  const legacy = /- insert:\s*\n\s+- id: agent-browser[\s\S]*?timeoutMs:.*\n/m;
+  if (legacy.test(raw)) {
+    const next = raw.replace(legacy, '');
+    writeFileSync(cordisPatchPath, next);
+    return { changed: true, raw: next };
+  }
+  return { changed: false, raw };
 }
 
 function ensurePackageJson(profile) {
