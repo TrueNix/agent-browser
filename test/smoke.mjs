@@ -12,6 +12,8 @@ import { dirname, join } from 'node:path';
 import { withBrowser, BrowserSession, buildWebglPatch } from '../src/client.mjs';
 import { findBrowser, deriveIdentity, hasGpu, launchBrowser } from '../src/browser.mjs';
 import { addToPackageJson, removeFromPackageJson } from '../src/install.mjs';
+import { TOOLS, findTool, toolCatalogue } from '../src/tools.mjs';
+import { quote } from '../cordis/plugin.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = join(here, '..', 'src', 'cli.mjs');
@@ -138,6 +140,36 @@ await test('uninstall removes the bundle entry too', () => {
   assert(pkg.dsh.profile.bundles.includes('@deepseek-ai/dsh-base'), 'other bundles must survive');
 });
 
+console.log('\ntool catalogue (offline)');
+
+// MCP shipped nine tools and the DSH plugin six, so browser_html,
+// browser_accessibility_tree and browser_pdf did not exist for DSH users.
+await test('every harness sees the same tools', () => {
+  assert(TOOLS.length === 9, `expected 9 tools, got ${TOOLS.length}`);
+  for (const tool of TOOLS) {
+    assert(typeof tool.run === 'function', `${tool.name} needs an in-process runner`);
+    assert(typeof tool.cli === 'function', `${tool.name} needs a CLI form`);
+    assert(tool.inputSchema && tool.inputSchema.type === 'object', `${tool.name} needs a schema`);
+  }
+});
+
+await test('the catalogue renders for MCP, OpenAI and Anthropic', () => {
+  assert(toolCatalogue('mcp')[0].inputSchema, 'mcp shape uses inputSchema');
+  const openai = toolCatalogue('openai')[0];
+  assert(openai.type === 'function' && openai.function.parameters, 'openai shape wraps in function');
+  assert(toolCatalogue('anthropic')[0].input_schema, 'anthropic shape uses input_schema');
+  for (const format of ['mcp', 'openai', 'anthropic']) {
+    assert(toolCatalogue(format).length === TOOLS.length, `${format} must expose every tool`);
+  }
+});
+
+// The DSH plugin shells out, so a URL or JS expression must never reach sh raw.
+await test('CLI arguments survive shell quoting', () => {
+  assert(quote("a'b") === "'a'\\''b'", `bad escape: ${quote("a'b")}`);
+  const argv = findTool('browser_evaluate').cli({ url: 'https://x.test', expression: "document.title+'!'" });
+  assert(argv[0] === 'eval' && argv[2] === "document.title+'!'", 'expression must pass through intact');
+});
+
 if (process.env.AGENT_BROWSER_SKIP_NETWORK === '1') {
   console.log('\nskipping browser tests (AGENT_BROWSER_SKIP_NETWORK=1)');
   report();
@@ -219,13 +251,79 @@ await test('captures a real PNG screenshot', async () => {
   });
 });
 
+// Table cells were rendered with innerText, which dropped every link, code span
+// and emphasis inside them. On a table-based layout that is the whole page.
+await test('table cells keep their inline markup', async () => {
+  await withBrowser({}, async (session) => {
+    await session.navigate('data:text/html,<table><tr><th>API</th><th>Doc</th></tr>'
+      + '<tr><td><code>fetch()</code></td><td><a href="https://mdn.test/f">MDN</a></td></tr></table>');
+    const md = await session.markdown({ main: false });
+    assert(md.includes('`fetch()`'), `code span lost in a cell: ${md}`);
+    assert(md.includes('[MDN](https://mdn.test/f)'), `link lost in a cell: ${md}`);
+  });
+});
+
+await test('a layout table is not forced into pipe syntax', async () => {
+  await withBrowser({}, async (session) => {
+    // A table wrapping another table is page furniture, not data.
+    await session.navigate('data:text/html,<table><tr><td><table><tr><td>'
+      + '<h1>Real heading</h1><p>Real paragraph</p></td></tr></table></td></tr></table>');
+    const md = await session.markdown({ main: false });
+    assert(md.includes('# Real heading'), `heading should survive: ${md}`);
+    assert(!md.includes('|'), `layout table should not render as a pipe table: ${md}`);
+  });
+});
+
+await test('a truncated table says so', async () => {
+  await withBrowser({}, async (session) => {
+    const rows = Array.from({ length: 12 }, (_, i) => `<tr><td>row${i}</td></tr>`).join('');
+    await session.navigate(`data:text/html,<table><tr><th>H</th></tr>${rows}</table>`);
+    const md = await session.markdown({ main: false, maxRows: 5 });
+    assert(/table truncated: 4 of 12 rows shown/.test(md), `expected a truncation notice: ${md}`);
+    const full = await session.markdown({ main: false, maxRows: 0 });
+    assert(full.includes('row11') && !/truncated/.test(full), 'maxRows 0 means no cap and no notice');
+  });
+});
+
+await test('link styles trade URLs for tokens', async () => {
+  await withBrowser({}, async (session) => {
+    await session.navigate('https://en.wikipedia.org/wiki/WebAssembly');
+    const inline = await session.markdown({ links: 'inline' });
+    const relative = await session.markdown({ links: 'relative' });
+    const text = await session.markdown({ links: 'text' });
+    assert(/\]\(https:\/\//.test(inline), 'inline keeps absolute URLs');
+    assert(/\]\(\/wiki\//.test(relative), 'relative drops the origin');
+    assert(!/\]\(/.test(text), 'text drops URLs entirely');
+    assert(text.length < inline.length * 0.75, `text mode should be far smaller: ${text.length} vs ${inline.length}`);
+    assert(relative.length < inline.length, 'relative should be smaller than inline');
+  });
+});
+
 await test('extracts links and an accessibility tree', async () => {
   await withBrowser({}, async (session) => {
     await session.navigate('https://example.com');
     const links = await session.links();
-    assert(links.length > 0 && links[0].href.startsWith('http'), 'expected an absolute link');
+    assert(links.links.length > 0 && links.links[0].href.startsWith('http'), 'expected an absolute link');
+    assert(links.total === links.links.length && links.truncated === false, 'nothing to truncate here');
     const tree = await session.accessibilityTree();
-    assert(tree.some((n) => n.role === 'heading'), 'expected a heading node');
+    assert(tree.nodes.some((n) => n.role === 'heading'), 'expected a heading node');
+    assert(tree.truncated === false, 'example.com fits well under the cap');
+  });
+});
+
+// The full tree is ~8000 nodes / 500 kB on a real article — enough to swallow an
+// agent's whole context in one call. The cap must hold AND be visible.
+await test('a bounded accessibility tree reports what it clipped', async () => {
+  await withBrowser({}, async (session) => {
+    await session.navigate('https://en.wikipedia.org/wiki/WebAssembly');
+    const tree = await session.accessibilityTree({ limit: 25 });
+    assert(tree.nodes.length === 25, `expected 25 nodes, got ${tree.nodes.length}`);
+    assert(tree.total > 25, 'a real article has far more nodes than the cap');
+    assert(tree.truncated === true, 'truncation must be stated, never silent');
+
+    const capped = await session.links({ limit: 10 });
+    assert(capped.links.length === 10 && capped.total > 10 && capped.truncated === true,
+      'links() must report its cap too');
   });
 });
 

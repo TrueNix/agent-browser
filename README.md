@@ -19,27 +19,69 @@ Everything runs locally. No account, no API key, no remote service, no quota.
 
 Feeding an agent raw HTML wastes most of its context. Measured on real pages:
 
-| page | html | markdown | text | saving |
-| --- | --- | --- | --- | --- |
-| `en.wikipedia.org/wiki/WebAssembly` | 835 kB | **95 kB** | 51 kB | 8.8× |
-| `news.ycombinator.com` | 34 kB | **6 kB** | 4 kB | 5.2× |
-
 And a browser that announces itself as automation gets blocked, degraded, or served different content — which quietly corrupts whatever the agent concluded.
 
 ### Heavy-site benchmark (live, `curl` vs `markdown`)
 
-| site | raw HTML | markdown | saving |
-| --- | --- | --- | --- |
-| `en.wikipedia.org/wiki/WebAssembly` | 623 kB | **97 kB** | 6.4× |
-| `react.dev` | 272 kB | **11 kB** | 23.8× |
-| `nextjs.org` | 320 kB | **10 kB** | 31.7× |
-| `github.com/trending` | 646 kB | **69 kB** | 9.3× |
-| `apple.com` | 254 kB | **4.4 kB** | 57.4× |
+| site | raw HTML | markdown | `--links text` | saving |
+| --- | --- | --- | --- | --- |
+| `en.wikipedia.org/wiki/WebAssembly` | 927 kB | **120 kB** | 55 kB | 7.7× / 16.8× |
+| `react.dev` | 273 kB | **11 kB** | 8.7 kB | 23.8× / 31.4× |
+| `nextjs.org` | 342 kB | **10 kB** | 7.3 kB | 33.9× / 47.0× |
+| `github.com/trending` | 648 kB | **69 kB** | 13 kB | 9.3× / 48.9× |
+| `apple.com` | 360 kB | **4.6 kB** | 3.5 kB | 78.6× / 102.8× |
+| `news.ycombinator.com` | 35 kB | **10 kB** | 3.1 kB | 3.4× / 11.1× |
+
+### Spending fewer tokens on the same page
+
+URLs are a third of the output on a Wikipedia article and four fifths of it on
+`github.com/trending`. When the agent is reading rather than navigating, drop them:
+
+```bash
+agent-browser markdown https://github.com/trending --links text      # 69 kB -> 13 kB
+agent-browser markdown https://en.wikipedia.org/wiki/Rust --links relative
+```
+
+| mode | renders | use it when |
+| --- | --- | --- |
+| `inline` *(default)* | `[text](https://site/page)` | the agent will navigate next |
+| `relative` | `[text](/page)` | same-site crawling; keeps targets, drops the origin |
+| `text` | `text` | reading, summarising, question answering |
 
 ![Heavy-site benchmark](./heavy-benchmark.png)
 
 ![Token cost: Raw HTML vs agent-browser](./token-cost-graph.png)
 *Token cost per YC check (HN + YC Blog, 45.5k → 2.9k tokens, +500 out) — real pricing Aug 2026: Anthropic Sonnet $3/$15, Opus $5/$25, Haiku $1/$5 • OpenAI GPT-4o $2.50/$10*
+
+## Any other harness
+
+If your framework speaks JSON Schema, it can drive agent-browser without this
+project knowing the framework exists. `agent-browser tools` prints the catalogue
+in whichever shape you need:
+
+```bash
+agent-browser tools                     # MCP:       {name, description, inputSchema}
+agent-browser tools --format openai     # OpenAI:    {type:"function", function:{...}}
+agent-browser tools --format anthropic  # Anthropic: {name, description, input_schema}
+```
+
+Each tool then runs either way, whichever your harness can do:
+
+```js
+import { findTool, TOOLS } from '@truenix/agent-browser/tools';
+import { withBrowser } from '@truenix/agent-browser';
+
+// in-process: the harness can hold a CDP session
+const tool = findTool('browser_markdown');
+const text = await withBrowser({}, async (session) => {
+  await session.navigate('https://example.com');
+  return tool.run(session, { url: 'https://example.com', links: 'text' });
+});
+
+// out-of-process: the harness can only run a command (sandboxes, shells)
+tool.cli({ url: 'https://example.com', links: 'text' });
+// => ['markdown', 'https://example.com', '--links', 'text']
+```
 
 ## Install
 
@@ -70,6 +112,8 @@ claude mcp add browser -- npx -y @truenix/agent-browser mcp
 
 Tools: `browser_markdown`, `browser_text`, `browser_html`, `browser_links`, `browser_screenshot`, `browser_evaluate`, `browser_accessibility_tree`, `browser_pdf`, `browser_probe`.
 
+Every surface exposes the same nine tools from one shared catalogue, so the CLI, the MCP server and the DSH plugin can never drift apart.
+
 ### As a library
 
 ```bash
@@ -95,7 +139,7 @@ npx -y @truenix/agent-browser install          # adds the bundle to ~/.dsh/profi
 # npx -y @truenix/agent-browser uninstall      # remove again
 ```
 
-Restart `dsh` — `browser_markdown`, `browser_text`, `browser_links`, `browser_evaluate`, `browser_screenshot`, `browser_probe` appear as native tools. No handler runs on plain `npm install`; intentional `install` is required.
+Restart `dsh` — all nine `browser_*` tools appear as native tools. No handler runs on plain `npm install`; intentional `install` is required.
 
 **Manual (if you prefer to edit the composition yourself):**
 

@@ -9,6 +9,7 @@ import { writeFileSync } from 'node:fs';
 import { withBrowser, withSession } from './client.mjs';
 import { findBrowser, hasGpu, browserVersion } from './browser.mjs';
 import { startMcpServer } from './mcp.mjs';
+import { toolCatalogue } from './tools.mjs';
 import { install as installDsh, uninstall as uninstallDsh } from './install.mjs';
 
 const USAGE = `agent-browser — a hardened local browser for AI agents
@@ -27,6 +28,7 @@ Commands:
   eval <url> <expr>       Evaluate a JS expression in the page
   probe                   Report browser, GPU and capability flags
   mcp                     Run as an MCP server over stdio
+  tools [--format f]      Print the tool schemas (mcp | openai | anthropic)
   install [--profile web] Auto-wire into a DSH profile (edits cordis.patch.yml + package.json)
   uninstall [--profile web] Remove from a DSH profile
 
@@ -40,6 +42,9 @@ Options:
       --viewport <w>x<h>  Force a device-metrics override (see note below)
       --main              Restrict extraction to the main/article element
       --raw               Do not restrict to main (markdown defaults to main)
+      --links <mode>      inline (default) | relative | text  — see note below
+      --max-rows <n>      Table row cap for markdown (default 60, 0 = no cap)
+      --limit <n>         Cap for links/a11y results (0 = no cap)
       --full              Full-page screenshot
       --endpoint <ws>     Attach to an ALREADY RUNNING browser instead of launching
       --timeout <ms>      Per-command timeout (default 45000)
@@ -51,10 +56,18 @@ Note on --viewport: a device-metrics override is NOT applied by default,
 because the launch geometry is already internally consistent and the common
 1280x720 default is a known automation fingerprint. Set it only if you need it.
 
+Note on --links: URLs are 36% of the characters on a Wikipedia article and 81%
+on github.com/trending. "--links text" keeps the anchor text and drops the URL,
+which roughly halves a link-dense page; "--links relative" drops just the site
+origin. Stay on the default "inline" when the agent needs somewhere to navigate.
+
 Environment:
   AGENT_BROWSER_BIN       Path to a Chrome/Chromium binary
   AGENT_BROWSER_ENDPOINT  Attach to this CDP endpoint instead of launching
 `;
+
+const LINK_STYLES = ['inline', 'relative', 'text'];
+const TOOL_FORMATS = ['mcp', 'openai', 'anthropic'];
 
 function parseArgs(argv) {
   const opts = { _: [] };
@@ -66,6 +79,10 @@ function parseArgs(argv) {
       case '-o': case '--out': opts.out = take(); break;
       case '--full': opts.full = true; break;
       case '--main': opts.main = true; break;
+      case '--links': opts.links = take(); break;
+      case '--max-rows': opts.maxRows = Number(take()); break;
+      case '--limit': opts.limit = Number(take()); break;
+      case '--format': opts.format = take(); break;
       case '--raw': opts.raw = true; break;
       case '--json': opts.json = true; break;
       case '--headful': opts.headful = true; break;
@@ -131,6 +148,19 @@ async function main() {
 
   if (opts.help || !command) { process.stdout.write(USAGE); return 0; }
   if (command === 'mcp') { await startMcpServer(); return 0; }
+  if (command === 'tools') {
+    // Any harness that can read JSON Schema can be wired up from this, without
+    // the project needing to know the framework exists.
+    const format = opts.format || rest[0] || 'mcp';
+    if (!TOOL_FORMATS.includes(format)) {
+      throw new Error(`unknown tool format: ${format} (expected ${TOOL_FORMATS.join(', ')})`);
+    }
+    process.stdout.write(`${JSON.stringify(toolCatalogue(format), null, 2)}\n`);
+    return 0;
+  }
+  if (opts.links !== undefined && !LINK_STYLES.includes(opts.links)) {
+    throw new Error(`unknown --links mode: ${opts.links} (expected ${LINK_STYLES.join(', ')})`);
+  }
   if (command === 'install') {
     const profile = opts.profile || rest[0] || 'web';
     const dryRun = Boolean(opts.dryRun);
@@ -181,11 +211,13 @@ async function main() {
     };
 
     switch (command) {
-      case 'markdown': emit(await session.markdown({ main: !opts.raw })); break;
+      case 'markdown':
+        emit(await session.markdown({ main: !opts.raw, links: opts.links, maxRows: opts.maxRows }));
+        break;
       case 'text': emit(await session.text({ main: Boolean(opts.main) })); break;
       case 'html': emit(await session.html()); break;
-      case 'links': emit(await session.links()); break;
-      case 'a11y': emit(await session.accessibilityTree()); break;
+      case 'links': emit(await session.links({ limit: opts.limit })); break;
+      case 'a11y': emit(await session.accessibilityTree({ limit: opts.limit })); break;
       case 'eval': {
         const expression = rest.slice(1).join(' ');
         if (!expression) throw new Error('eval requires an expression');

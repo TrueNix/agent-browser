@@ -276,16 +276,35 @@ export class BrowserSession {
     return this.evaluate(`(${rootPicker})(${JSON.stringify(main)}).innerText`);
   }
 
-  async markdown({ main = true } = {}) {
-    return this.evaluate(`(${htmlToMarkdown})((${rootPicker})(${JSON.stringify(main)}))`);
+  /**
+   * @param {{main?: boolean, links?: 'inline'|'relative'|'text', maxRows?: number}} [options]
+   *
+   * `links` is the single biggest lever on output size: URLs are 36% of the
+   * characters on a Wikipedia article and 81% on github.com/trending, so
+   * 'text' roughly halves a link-dense page for any task that only reads.
+   * It stays 'inline' by default, because an agent that has to navigate next
+   * needs somewhere to go.
+   */
+  async markdown({ main = true, links = 'inline', maxRows = 60 } = {}) {
+    const options = JSON.stringify({ links, maxRows });
+    return this.evaluate(`(${htmlToMarkdown})((${rootPicker})(${JSON.stringify(main)}),${options})`);
   }
 
-  async links() {
+  /**
+   * Every anchor on the page.
+   * Returns {links, total, truncated} rather than a bare array so a clipped
+   * result can never be mistaken for a complete one.
+   */
+  async links({ limit = 500 } = {}) {
     const raw = await this.evaluate(
-      `JSON.stringify(Array.from(document.querySelectorAll('a[href]')).slice(0,500)`
-      + `.map(a=>({text:(a.innerText||'').trim().slice(0,200),href:a.href})))`,
+      `(()=>{const a=Array.from(document.querySelectorAll('a[href]'));`
+      + `return JSON.stringify({total:a.length,links:a.slice(0,${Number(limit)})`
+      + `.map(x=>({text:(x.innerText||'').trim().slice(0,200),href:x.href}))})})()`,
     );
-    try { return JSON.parse(raw); } catch { return []; }
+    try {
+      const parsed = JSON.parse(raw);
+      return { ...parsed, truncated: parsed.total > parsed.links.length };
+    } catch { return { links: [], total: 0, truncated: false }; }
   }
 
   async screenshot({ format = 'png', fullPage = false, quality } = {}) {
@@ -308,15 +327,25 @@ export class BrowserSession {
     return Buffer.from(res.data, 'base64');
   }
 
-  async accessibilityTree() {
+  /**
+   * Filtered accessibility tree.
+   *
+   * Bounded, because the full tree is enormous: one Wikipedia article yields
+   * 8137 nodes / 508 kB, roughly 127k tokens, which would swallow an agent's
+   * whole context in a single call. Returns {nodes, total, truncated} so the
+   * cap is visible rather than silent.
+   */
+  async accessibilityTree({ limit = 1500 } = {}) {
     await this.send('Accessibility.enable').catch(() => {});
     const res = await this.send('Accessibility.getFullAXTree');
-    return (res.nodes ?? []).map((node) => ({
+    const useful = (res.nodes ?? []).map((node) => ({
       role: node.role?.value,
       name: node.name?.value,
       value: node.value?.value,
       ignored: node.ignored === true,
     })).filter((n) => !n.ignored && (n.name || n.value) && n.role !== 'none');
+    const nodes = limit > 0 ? useful.slice(0, limit) : useful;
+    return { nodes, total: useful.length, truncated: nodes.length < useful.length };
   }
 
   /**

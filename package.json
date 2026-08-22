@@ -1,6 +1,6 @@
 {
   "name": "@truenix/agent-browser",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "A hardened local browser for AI agents. Zero-dependency CDP client, CLI, MCP server and DSH/Cordis plugin. Clears standard bot-detection fingerprint checks; token-efficient Markdown extraction.",
   "keywords": [
     "browser",
@@ -49,12 +49,14 @@
     "./extract": "./src/extract.mjs",
     "./mcp": "./src/mcp.mjs",
     "./ws": "./src/ws.mjs",
-    "./cordis": "./cordis/plugin.mjs"
+    "./cordis": "./cordis/plugin.mjs",
+    "./tools": "./src/tools.mjs"
   },
   "files": [
     "src",
     "cordis",
     "cordis.patch.yml",
+    "CHANGELOG.md",
     "README.md",
     "CREDITS.md",
     "LICENSE"
