@@ -5,10 +5,13 @@
  * Set AGENT_BROWSER_SKIP_NETWORK=1 to run only the checks that need no browser.
  */
 import { spawn } from 'node:child_process';
+import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { withBrowser, BrowserSession, buildWebglPatch } from '../src/client.mjs';
-import { findBrowser, deriveIdentity, hasGpu } from '../src/browser.mjs';
+import { findBrowser, deriveIdentity, hasGpu, launchBrowser } from '../src/browser.mjs';
+import { addToPackageJson, removeFromPackageJson } from '../src/install.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = join(here, '..', 'src', 'cli.mjs');
@@ -59,10 +62,62 @@ await test('open() refuses to run without an endpoint', async () => {
   assert(threw, 'open() must require an endpoint');
 });
 
+// A spawn failure used to arrive as an unhandled 'error' event, which killed the
+// whole process: the CLI's catch never ran and an MCP server died mid-session.
+await test('an unlaunchable binary rejects instead of killing the process', async () => {
+  const fake = join(mkdtempSync(join(tmpdir(), 'agentbrowser-test-')), 'not-executable');
+  writeFileSync(fake, '#!/nope\n');
+  chmodSync(fake, 0o644);
+  let message = null;
+  try { await launchBrowser({ binary: fake, timeoutMs: 3000 }); }
+  catch (err) { message = err.message; }
+  assert(message !== null, 'launchBrowser must reject for a binary it cannot spawn');
+  assert(/failed to start/.test(message), `expected a start failure, got: ${message}`);
+});
+
 await test('the WebGL patch keeps a native-looking toString', () => {
   const src = buildWebglPatch('V', 'R');
   assert(src.includes('new Proxy'), 'must wrap the native function in a Proxy');
   assert(src.includes('37445') && src.includes('37446'), 'must handle both UNMASKED_* parameters');
+});
+
+console.log('\nDSH profile wiring (offline)');
+
+// The bundle entry is what actually loads the tools. install() used to key the
+// whole decision off the dependency and report "already installed" over a
+// profile whose tools were never wired.
+await test('install wires the bundle even when the dependency is already there', () => {
+  const pkg = { name: 'web', dependencies: { '@truenix/agent-browser': '^1.0.0' } };
+  const result = addToPackageJson(pkg);
+  assert(result.changed, 'a profile missing the bundle entry is not fully installed');
+  assert(result.addedBundle && !result.addedDependency, 'only the bundle entry was missing');
+  assert(pkg.dsh.profile.bundles.includes('@truenix/agent-browser'), 'bundle entry must be present');
+});
+
+await test('install is a no-op once dependency and bundle are both wired', () => {
+  const pkg = {
+    dependencies: { '@truenix/agent-browser': '^1.0.0' },
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@truenix/agent-browser'] } },
+  };
+  assert(!addToPackageJson(pkg).changed, 'a fully wired profile must not be rewritten');
+  assert(pkg.dsh.profile.bundles.length === 2, 'bundles must not be duplicated');
+});
+
+await test('uninstall survives a profile with no dsh block', () => {
+  const pkg = { dependencies: { '@truenix/agent-browser': '^1.0.0' } };
+  const result = removeFromPackageJson(pkg);
+  assert(result.changed, 'the dependency should still be removed');
+  assert(!pkg.dependencies['@truenix/agent-browser'], 'dependency must be gone');
+});
+
+await test('uninstall removes the bundle entry too', () => {
+  const pkg = {
+    dependencies: { '@truenix/agent-browser': '^1.0.0' },
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@truenix/agent-browser'] } },
+  };
+  removeFromPackageJson(pkg);
+  assert(!pkg.dsh.profile.bundles.includes('@truenix/agent-browser'), 'bundle entry must be gone');
+  assert(pkg.dsh.profile.bundles.includes('@deepseek-ai/dsh-base'), 'other bundles must survive');
 });
 
 if (process.env.AGENT_BROWSER_SKIP_NETWORK === '1') {

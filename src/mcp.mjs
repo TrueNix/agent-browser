@@ -8,9 +8,16 @@
  * Each tool call gets its own isolated browser context, so tasks never share
  * cookies, storage or cache.
  */
+import { readFileSync } from 'node:fs';
 import { withBrowser, withSession } from './client.mjs';
 
 const PROTOCOL_VERSION = '2024-11-05';
+// Read the real version rather than repeating it here, where it silently sat at
+// 1.0.0 across two releases. package.json always ships in the tarball.
+const VERSION = (() => {
+  try { return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version; }
+  catch { return '0.0.0'; }
+})();
 const urlProperty = { type: 'string', description: 'Absolute http/https URL to load.' };
 
 const TOOLS = [
@@ -142,7 +149,7 @@ export async function startMcpServer() {
       reply(id, {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: 'agent-browser', version: '1.0.0' },
+        serverInfo: { name: 'agent-browser', version: VERSION },
       });
       return;
     }

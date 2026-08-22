@@ -244,7 +244,15 @@ export async function launchBrowser(options = {}) {
   let stderr = '';
   child.stderr.on('data', (d) => { if (stderr.length < 4000) stderr += d.toString(); });
 
+  // A spawn failure (EACCES on a non-executable binary, ENOENT on a stale
+  // AGENT_BROWSER_BIN, EAGAIN under load) arrives as an 'error' event. With no
+  // listener Node rethrows it as an uncaught exception, which takes down the
+  // whole process: the CLI's catch never runs, an MCP server dies mid-session,
+  // and cleanup() never fires so the temp profile leaks. Capture it and let the
+  // startup loop below turn it into an ordinary rejection.
+  let spawnError = null;
   let exited = false;
+  child.on('error', (err) => { spawnError = err; exited = true; });
   child.on('exit', () => { exited = true; });
 
   const deadline = Date.now() + timeoutMs;
@@ -252,6 +260,7 @@ export async function launchBrowser(options = {}) {
   while (Date.now() < deadline) {
     if (exited) {
       cleanup();
+      if (spawnError) throw new Error(`failed to start ${binary}: ${spawnError.message}`);
       throw new Error(`browser exited during startup: ${stderr.slice(-500) || 'no stderr'}`);
     }
     info = readEndpoint(profileDir);

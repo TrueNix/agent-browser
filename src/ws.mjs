@@ -145,10 +145,21 @@ export class MiniWebSocket {
   #feed(chunk) {
     this.#buffer = this.#buffer.length === 0 ? chunk : Buffer.concat([this.#buffer, chunk]);
     // Parse as many complete frames as the buffer currently holds.
-    for (;;) {
-      const frame = this.#readFrame();
-      if (frame === null) return;
-      this.#handleFrame(frame);
+    //
+    // Anything thrown in here (an oversized declared length, or a pong write
+    // onto a socket that just went away) would otherwise escape the socket's
+    // 'data' handler as an uncaught exception and kill the process. Report it
+    // on 'error' and tear the connection down, which is what callers expect.
+    try {
+      for (;;) {
+        const frame = this.#readFrame();
+        if (frame === null) return;
+        this.#handleFrame(frame);
+      }
+    } catch (err) {
+      this.#emit('error', err);
+      this.socket?.destroy();
+      this.#finish();
     }
   }
 
