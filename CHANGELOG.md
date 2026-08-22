@@ -1,6 +1,29 @@
 # Changelog
 
-## 1.1.0
+## 2.0.0
+
+A major, not a minor: three exported APIs changed shape, and the package is
+published, so anyone depending on `^1` should not be moved onto this by a
+`npm update`. Nothing here is churn for its own sake — each break comes from a
+default that was measurably wrong.
+
+### Migrating from 1.x
+
+```js
+// links() and accessibilityTree() return a shape, not a bare array
+-const links = await session.links();
+-for (const l of links) { ... }
++const { links, total, truncated } = await session.links();
++for (const l of links) { ... }
+
+// navigate() no longer pauses after load. If a page renders late, say so:
+-await session.navigate(url);                      // used to sleep 250ms
++await session.navigate(url, { waitUntil: 'idle' });
++await session.navigate(url, { settleMs: 250 });   // or keep the old pause
+```
+
+The CLI and the MCP/DSH tools are source-compatible: same commands, same tool
+names, new optional arguments. Only the library API changed shape.
 
 ### Breaking
 
@@ -25,6 +48,26 @@
 - **Layout tables are no longer forced into pipe syntax.** A table containing
   another table is page furniture, not data; rendering it as Markdown collapsed
   whole sites into one unreadable cell. Those are now descended into normally.
+- `launchBrowser` had no `error` listener on the spawned child, so a spawn
+  failure (EACCES, a stale `AGENT_BROWSER_BIN`, EAGAIN) surfaced as an unhandled
+  event and killed the process: the CLI's catch never ran, an MCP server died
+  mid-session, and the temp profile leaked. It now rejects normally.
+- `install()` keyed its decision off the dependency rather than the bundle
+  entry, so a profile carrying one without the other was told "already
+  installed" and left unwired. It also pinned new profiles to a hardcoded
+  `^1.0.0`; the range now follows this package's own version.
+- `uninstall()` threw a `TypeError` on any profile with the dependency but no
+  `dsh` block.
+- `deriveIdentity` hardcoded an `X11; Linux x86_64` User-Agent, which is the
+  fallback that runs on macOS and Windows — the browser claimed Linux while
+  `navigator.platform` said `MacIntel`. The token now follows the host, and
+  `Sec-CH-UA-Arch` follows the real CPU.
+- Windows path handling: `path.delimiter` instead of `':'`, `.exe` candidates,
+  and a path check that recognises `C:\...\chrome.exe` (which had broken
+  `AGENT_BROWSER_BIN` there).
+- The MCP server advertised a hardcoded `serverInfo.version` of `1.0.0`.
+- A throw inside `MiniWebSocket#feed` escaped the socket's `data` handler as an
+  uncaught exception.
 - Tables that hit the row cap say so instead of truncating silently.
 
 ### Added
@@ -60,30 +103,6 @@ content that was previously being dropped. Wikipedia went 97 kB → 120 kB and H
 6.7 kB → 10 kB in the default mode, while gaining 572 and 136 links
 respectively. `--links text` lands well below the old figures on both.
 `heavy-benchmark.png` and `token-cost-graph.png` still show pre-1.1.0 numbers.
-
-## 1.0.3 (unreleased)
-
-### Fixed
-
-- `launchBrowser` had no `error` listener on the spawned child, so a spawn
-  failure (EACCES, a stale `AGENT_BROWSER_BIN`, EAGAIN) surfaced as an unhandled
-  event and killed the process: the CLI's catch never ran, an MCP server died
-  mid-session, and the temp profile leaked. It now rejects normally.
-- `install()` keyed its decision off the dependency rather than the bundle
-  entry, so a profile carrying one without the other was told "already
-  installed" and left unwired.
-- `uninstall()` threw a `TypeError` on any profile with the dependency but no
-  `dsh` block.
-- `deriveIdentity` hardcoded an `X11; Linux x86_64` User-Agent, which is the
-  fallback that runs on macOS and Windows — the browser claimed Linux while
-  `navigator.platform` said `MacIntel`. The token now follows the host, and
-  `Sec-CH-UA-Arch` follows the real CPU.
-- Windows path handling: `path.delimiter` instead of `':'`, `.exe` candidates,
-  and a path check that recognises `C:\...\chrome.exe` (which had broken
-  `AGENT_BROWSER_BIN` there).
-- The MCP server advertised a hardcoded `serverInfo.version` of `1.0.0`.
-- A throw inside `MiniWebSocket#feed` escaped the socket's `data` handler as an
-  uncaught exception.
 
 ## 1.0.2
 

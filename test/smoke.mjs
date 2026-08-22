@@ -5,7 +5,7 @@
  * Set AGENT_BROWSER_SKIP_NETWORK=1 to run only the checks that need no browser.
  */
 import { spawn } from 'node:child_process';
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -112,6 +112,16 @@ await test('install wires the bundle even when the dependency is already there',
   assert(result.changed, 'a profile missing the bundle entry is not fully installed');
   assert(result.addedBundle && !result.addedDependency, 'only the bundle entry was missing');
   assert(pkg.dsh.profile.bundles.includes('@truenix/agent-browser'), 'bundle entry must be present');
+});
+
+// A published installer that wires profiles to the previous major is a silent
+// downgrade, so the range must track this package's own version.
+await test('install pins the profile to this major', () => {
+  const pkg = {};
+  addToPackageJson(pkg);
+  const range = pkg.dependencies['@truenix/agent-browser'];
+  const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert(range === `^${version}`, `expected ^${version}, got ${range}`);
 });
 
 await test('install is a no-op once dependency and bundle are both wired', () => {

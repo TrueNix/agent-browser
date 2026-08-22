@@ -10,6 +10,18 @@ import { execSync } from 'node:child_process';
 
 const PACKAGE = '@truenix/agent-browser';
 
+/**
+ * Pin a newly wired profile to the major THIS copy belongs to. It was hardcoded
+ * to '^1.0.0', which would have quietly installed the previous major the moment
+ * a 2.x installer ran.
+ */
+const VERSION_RANGE = (() => {
+  try {
+    const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    return `^${version}`;
+  } catch { return '*'; }
+})();
+
 function dshHome() {
   return process.env.DSH_HOME || join(homedir(), '.dsh');
 }
@@ -52,7 +64,7 @@ function ensurePatch(cordisPatchPath) {
 export function addToPackageJson(pkg) {
   pkg.dependencies ||= {};
   const addedDependency = !pkg.dependencies[PACKAGE];
-  if (addedDependency) pkg.dependencies[PACKAGE] = '^1.0.0';
+  if (addedDependency) pkg.dependencies[PACKAGE] = VERSION_RANGE;
 
   pkg.dsh ||= {};
   pkg.dsh.profile ||= {};
