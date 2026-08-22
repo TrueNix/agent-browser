@@ -300,6 +300,28 @@ await test('captures a real PNG screenshot', async () => {
 
 // Table cells were rendered with innerText, which dropped every link, code span
 // and emphasis inside them. On a table-based layout that is the whole page.
+// The help used to recommend textContent.trim(). trim() only strips the ends,
+// so GitHub's markup came back as "openai /\n\n      codex" and the agent that
+// copied the example paid a full retry round trip to discover it. Documentation
+// that is wrong costs more than documentation that is missing.
+await test('the documented eval recipe survives source whitespace', async () => {
+  await withBrowser({}, async (session) => {
+    await session.navigate("data:text/html,<article><h2><a href='/o/r'>owner\n\n      repo</a></h2></article>");
+    const viaTextContent = await session.evaluate("document.querySelector('article h2 a').textContent.trim()");
+    const viaInnerText = await session.evaluate("document.querySelector('article h2 a').innerText.trim()");
+    assert(/\s{2,}|\n/.test(viaTextContent), 'fixture must reproduce the interior-whitespace trap');
+    assert(!/\s{2,}|\n/.test(viaInnerText), `innerText should be clean, got ${JSON.stringify(viaInnerText)}`);
+  });
+});
+
+await test('the CLI help recommends the recipe that works', () => {
+  const usage = readFileSync(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+  const example = usage.slice(usage.indexOf('agent-browser eval https://github.com/trending'));
+  const line = example.slice(0, example.indexOf('\n\n'));
+  assert(line.includes('innerText'), 'the worked example must use innerText');
+  assert(!line.includes('textContent'), 'and must not recommend textContent, which keeps source whitespace');
+});
+
 await test('table cells keep their inline markup', async () => {
   await withBrowser({}, async (session) => {
     await session.navigate('data:text/html,<table><tr><th>API</th><th>Doc</th></tr>'

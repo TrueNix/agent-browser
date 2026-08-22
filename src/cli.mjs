@@ -63,9 +63,12 @@ because the launch geometry is already internally consistent and the common
 
 Picking a command: use "markdown" to READ a page, but "eval" when you only need
 one fact out of it — eval returns just the value. Three targeted questions across
-three heavy pages cost 235 bytes via eval versus 77 kB of Markdown. Example:
+three heavy pages cost 235 bytes via eval versus 77 kB of Markdown. Prefer
+innerText over textContent: textContent returns raw source whitespace
+("openai /\\n\\n      codex"), innerText returns what is rendered
+("openai / codex"), and getting that wrong costs a whole retry. Example:
   agent-browser eval https://github.com/trending \
-    "JSON.stringify(Array.from(document.querySelectorAll('article h2 a')).slice(0,3).map(a=>a.textContent.trim()))"
+    "JSON.stringify(Array.from(document.querySelectorAll('article h2 a')).slice(0,3).map(a=>a.innerText.trim()))"
 
 Note on --links: URLs are 36% of the characters on a Wikipedia article and 81%
 on github.com/trending. "--links text" keeps the anchor text and drops the URL,

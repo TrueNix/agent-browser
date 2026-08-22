@@ -226,9 +226,14 @@ pages cost **235 bytes** via `eval`, against **77 kB** of Markdown:
 
 ```bash
 agent-browser eval https://github.com/trending \
-  "JSON.stringify(Array.from(document.querySelectorAll('article h2 a')).slice(0,3).map(a=>a.textContent.trim()))"
-# ["openai/codex","mattpocock/skills","affaan-m/ECC"]   -> 55 bytes
+  "JSON.stringify(Array.from(document.querySelectorAll('article h2 a')).slice(0,3).map(a=>a.innerText.trim()))"
+# ["openai / codex","mattpocock / skills","affaan-m / ECC"]   -> 58 bytes
 ```
+
+Reach for `innerText`, not `textContent`. `textContent` hands back the raw
+source whitespace (`"openai /\n\n      codex"`); `innerText` gives what is
+actually rendered (`"openai / codex"`). An agent that gets that wrong pays a
+whole retry round trip, which costs far more than the bytes it saved.
 
 Use `markdown` when you actually need to read, summarise or search the page.
 

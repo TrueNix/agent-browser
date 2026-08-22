@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The worked `eval` example in the CLI help and README recommended
+  `textContent.trim()`. `trim()` only strips the ends, so GitHub's markup came
+  back as `"openai /\n\n      codex"` — and a benchmark agent that copied the
+  example paid a full retry round trip to discover it. Now recommends
+  `innerText`, with a note on why, and two tests keep the documented recipe
+  honest: one proves the whitespace trap is real, one asserts the help does not
+  reintroduce it.
+
 ## 2.0.0
 
 A major, not a minor: three exported APIs changed shape, and the package is
