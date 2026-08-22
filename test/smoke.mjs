@@ -559,6 +559,28 @@ await test('daemon serves one browser to many clients, then stops', async () => 
   }
 });
 
+// --width/--headful/--gpu are fixed when the browser launches, so a shared
+// browser cannot honour them. Handing back a 1920x1080 page to someone who
+// asked for 800x600 would be exactly the quiet wrongness this project avoids.
+await test('an explicit launch flag beats the daemon rather than being ignored', async () => {
+  const socket = join(mkdtempSync(join(tmpdir(), 'ab-daemon-')), 'd.sock');
+  const env = { ...process.env, AGENT_BROWSER_DAEMON_SOCKET: socket, AGENT_BROWSER_DAEMON_IDLE_MS: '20000' };
+  try {
+    const out = await new Promise((resolve) => {
+      const p = spawn(process.execPath,
+        [CLI, 'eval', 'https://example.com', "window.outerWidth+'x'+window.outerHeight",
+          '--daemon', '--width', '800', '--height', '600'],
+        { env });
+      let stdout = ''; let stderr = '';
+      p.stdout.on('data', (d) => { stdout += d; });
+      p.stderr.on('data', (d) => { stderr += d; });
+      p.on('close', () => resolve({ stdout, stderr }));
+    });
+    assert(out.stdout.includes('800x600'), `the explicit size must win, got: ${out.stdout.trim()}`);
+    assert(/cannot apply to the shared browser/.test(out.stderr), 'and it must say why it skipped the daemon');
+  } finally { rmSync(dirname(socket), { recursive: true, force: true }); }
+});
+
 await test('daemon sessions do not share storage', async () => {
   const socket = join(mkdtempSync(join(tmpdir(), 'ab-daemon-')), 'd.sock');
   process.env.AGENT_BROWSER_DAEMON_SOCKET = socket;

@@ -92,6 +92,8 @@ Environment:
 
 const LINK_STYLES = ['inline', 'relative', 'text'];
 const WAIT_MODES = ['domcontentloaded', 'load', 'idle'];
+/** Options fixed at browser launch, so the daemon's browser cannot honour them. */
+const LAUNCH_LEVEL = ['headful', 'blockImages', 'width', 'height', 'gpu'];
 const TOOL_FORMATS = ['mcp', 'openai', 'anthropic'];
 
 function parseArgs(argv) {
@@ -148,7 +150,19 @@ function run(opts, body) {
   // Opt-in, because starting a background process that outlives the command is
   // a side effect the caller should ask for rather than discover.
   if (opts.daemon || process.env.AGENT_BROWSER_DAEMON === '1') {
-    return withDaemonSession({ stealth: opts.noStealth !== true, timeoutMs: opts.timeoutMs }, body);
+    // These belong to the BROWSER, not the session, so a shared browser cannot
+    // honour them — it was already up with different ones. Silently returning a
+    // 1920x1080 page to someone who asked for 800x600 is the kind of quiet
+    // wrongness this project exists to avoid, so the explicit flag wins and the
+    // daemon is skipped for this call.
+    const launchFlags = LAUNCH_LEVEL.filter((name) => opts[name] !== undefined);
+    if (launchFlags.length === 0) {
+      return withDaemonSession({ stealth: opts.noStealth !== true, timeoutMs: opts.timeoutMs }, body);
+    }
+    process.stderr.write(
+      `agent-browser: --${launchFlags.join(', --')} cannot apply to the shared browser; `
+      + 'using a private one for this call\n',
+    );
   }
   return withBrowser({
     headless: !opts.headful,

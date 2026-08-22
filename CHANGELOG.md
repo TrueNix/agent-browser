@@ -118,6 +118,12 @@ names, new optional arguments. Only the library API changed shape.
   `AGENT_BROWSER_DAEMON=1`; `agent-browser daemon --status|--stop` manages it;
   it exits after five minutes idle (`AGENT_BROWSER_DAEMON_IDLE_MS`). Exposed as
   `@truenix/agent-browser/daemon`.
+- Launch-level flags (`--headful`, `--width`, `--height`, `--block-images`,
+  `--gpu`) now override `--daemon` for that call instead of being silently
+  dropped. They are fixed when a browser starts, so a shared browser was
+  ignoring them — `--daemon --width 800` returned a 1920x1080 page.
+- `AGENT_BROWSER_DAEMON=1` also routes the MCP server at the daemon, so several
+  MCP clients on one machine share a browser instead of one each.
 - **The MCP server now shares one browser across tool calls** instead of
   launching one per call, each call still getting its own isolated context.
   Chrome costs ~420 MB PSS across ~18 processes before it loads anything, so the

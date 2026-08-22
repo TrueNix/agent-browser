@@ -14,6 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { withSession } from './client.mjs';
 import { withPooledSession, shutdownPool } from './pool.mjs';
+import { withDaemonSession } from './daemon.mjs';
 import { findTool, toolCatalogue } from './tools.mjs';
 
 const PROTOCOL_VERSION = '2024-11-05';
@@ -36,6 +37,10 @@ const VERSION = (() => {
 function runSession(body) {
   const endpoint = process.env.AGENT_BROWSER_ENDPOINT;
   if (endpoint) return withSession({ endpoint, stealth: true }, body);
+  // The pool already shares one browser across this server's calls. The daemon
+  // goes further and shares across separate MCP servers on the same machine —
+  // worth it when several clients each run their own — so it is opt-in too.
+  if (process.env.AGENT_BROWSER_DAEMON === '1') return withDaemonSession({ stealth: true }, body);
   return withPooledSession({ headless: true, gpu: 'auto', stealth: true }, body);
 }
 

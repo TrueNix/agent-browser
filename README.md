@@ -301,7 +301,12 @@ agent-browser daemon --stop
 It is opt-in (`--daemon`, or `AGENT_BROWSER_DAEMON=1`) because starting a
 background process that outlives your command is a side effect worth asking
 for. It starts on demand and exits after five minutes idle
-(`AGENT_BROWSER_DAEMON_IDLE_MS`).
+(`AGENT_BROWSER_DAEMON_IDLE_MS`). Setting the env var also routes the MCP
+server at it, which is worth doing when several MCP clients share a machine.
+
+`--headful`, `--width`, `--height`, `--block-images` and `--gpu` are fixed when
+a browser launches, so a shared one cannot honour them. Passing any of them
+wins: that call quietly gets its own private browser, and says so on stderr.
 
 Four failure modes it is built around, each verified by test:
 
