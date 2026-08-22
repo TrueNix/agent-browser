@@ -65,7 +65,7 @@ export async function startMcpServer() {
             if (!args.url) throw new Error(`${tool.name} requires "url"`);
             // No device-metrics override: the launch geometry is already
             // consistent, and 1280x720 is a known automation fingerprint.
-            await session.navigate(args.url);
+            await session.navigate(args.url, { waitUntil: args.waitUntil || 'load' });
           }
           return tool.run(session, args);
         });

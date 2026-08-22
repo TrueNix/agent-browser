@@ -299,6 +299,57 @@ await test('link styles trade URLs for tokens', async () => {
   });
 });
 
+// navigate() used to poll readyState every 200ms and then sleep a flat 250ms.
+// The fixed settle was a guess: it cost every page a quarter second AND still
+// missed content that renders after load. Events are faster; 'idle' is correct.
+await test('waitUntil idle catches content that arrives after load', async () => {
+  const { createServer } = await import('node:http');
+  const server = createServer((req, res) => {
+    if (req.url === '/data') {
+      setTimeout(() => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ body: 'LATE CONTENT' }));
+      }, 350);
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<main><h1>Shell</h1><div id=app></div></main><script>'
+      + 'addEventListener("load",()=>{fetch("/data").then(r=>r.json())'
+      + '.then(d=>{document.getElementById("app").innerHTML="<p>"+d.body+"</p>";});});</script>');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${server.address().port}/`;
+  try {
+    await withBrowser({}, async (session) => {
+      await session.navigate(url, { waitUntil: 'load' });
+      assert(!(await session.markdown()).includes('LATE CONTENT'), 'load fires before the fetch resolves');
+      await session.navigate(url, { waitUntil: 'idle' });
+      assert((await session.markdown()).includes('LATE CONTENT'), 'idle must wait for the real signal');
+    });
+  } finally { server.close(); }
+});
+
+await test('the default wait is event-driven, not a fixed delay', async () => {
+  await withBrowser({}, async (session) => {
+    await session.navigate('https://example.com');            // warm the cache
+    const started = Date.now();
+    const state = await session.navigate('https://example.com');
+    const elapsed = Date.now() - started;
+    assert(state.readyState === 'complete', 'must still report a loaded page');
+    // The old path could not beat its own 250ms settle, whatever the page cost.
+    assert(elapsed < 200, `expected an event wait, took ${elapsed}ms`);
+  });
+});
+
+await test('waitUntil rejects a mode it does not have', async () => {
+  await withBrowser({}, async (session) => {
+    let threw = false;
+    try { await session.navigate('https://example.com', { waitUntil: 'whenever' }); }
+    catch { threw = true; }
+    assert(threw, 'an unknown milestone must fail loudly, not wait forever');
+  });
+});
+
 await test('extracts links and an accessibility tree', async () => {
   await withBrowser({}, async (session) => {
     await session.navigate('https://example.com');

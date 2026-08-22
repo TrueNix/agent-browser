@@ -42,6 +42,8 @@ Options:
       --viewport <w>x<h>  Force a device-metrics override (see note below)
       --main              Restrict extraction to the main/article element
       --raw               Do not restrict to main (markdown defaults to main)
+      --wait <mode>       domcontentloaded | load (default) | idle — see note below
+      --settle <ms>       Extra pause after the wait (default 0)
       --links <mode>      inline (default) | relative | text  — see note below
       --max-rows <n>      Table row cap for markdown (default 60, 0 = no cap)
       --limit <n>         Cap for links/a11y results (0 = no cap)
@@ -61,12 +63,18 @@ on github.com/trending. "--links text" keeps the anchor text and drops the URL,
 which roughly halves a link-dense page; "--links relative" drops just the site
 origin. Stay on the default "inline" when the agent needs somewhere to navigate.
 
+Note on --wait: the default waits for the load event, which is event-driven and
+typically 2-3x faster than polling. A client-rendered app whose content arrives
+after load needs "--wait idle", which waits for the network to go quiet instead
+of guessing at a fixed delay.
+
 Environment:
   AGENT_BROWSER_BIN       Path to a Chrome/Chromium binary
   AGENT_BROWSER_ENDPOINT  Attach to this CDP endpoint instead of launching
 `;
 
 const LINK_STYLES = ['inline', 'relative', 'text'];
+const WAIT_MODES = ['domcontentloaded', 'load', 'idle'];
 const TOOL_FORMATS = ['mcp', 'openai', 'anthropic'];
 
 function parseArgs(argv) {
@@ -79,6 +87,8 @@ function parseArgs(argv) {
       case '-o': case '--out': opts.out = take(); break;
       case '--full': opts.full = true; break;
       case '--main': opts.main = true; break;
+      case '--wait': opts.waitUntil = take(); break;
+      case '--settle': opts.settleMs = Number(take()); break;
       case '--links': opts.links = take(); break;
       case '--max-rows': opts.maxRows = Number(take()); break;
       case '--limit': opts.limit = Number(take()); break;
@@ -161,6 +171,9 @@ async function main() {
   if (opts.links !== undefined && !LINK_STYLES.includes(opts.links)) {
     throw new Error(`unknown --links mode: ${opts.links} (expected ${LINK_STYLES.join(', ')})`);
   }
+  if (opts.waitUntil !== undefined && !WAIT_MODES.includes(opts.waitUntil)) {
+    throw new Error(`unknown --wait mode: ${opts.waitUntil} (expected ${WAIT_MODES.join(', ')})`);
+  }
   if (command === 'install') {
     const profile = opts.profile || rest[0] || 'web';
     const dryRun = Boolean(opts.dryRun);
@@ -200,7 +213,11 @@ async function main() {
     // is already consistent, and the usual 1280x720 default is a known
     // automation fingerprint that detectors flag by name.
     if (opts.viewport) await session.setViewport(opts.viewport);
-    const state = await session.navigate(url, { timeoutMs: opts.timeoutMs ?? 45000 });
+    const state = await session.navigate(url, {
+      timeoutMs: opts.timeoutMs ?? 45000,
+      waitUntil: opts.waitUntil ?? 'load',
+      settleMs: opts.settleMs ?? 0,
+    });
 
     const emit = (value) => {
       if (opts.json) {

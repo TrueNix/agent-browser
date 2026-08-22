@@ -53,6 +53,32 @@ agent-browser markdown https://en.wikipedia.org/wiki/Rust --links relative
 ![Token cost: Raw HTML vs agent-browser](./token-cost-graph.png)
 *Token cost per YC check (HN + YC Blog, 45.5k → 2.9k tokens, +500 out) — real pricing Aug 2026: Anthropic Sonnet $3/$15, Opus $5/$25, Haiku $1/$5 • OpenAI GPT-4o $2.50/$10*
 
+### Pages that render after load
+
+Navigation waits for the `load` event, driven by CDP lifecycle events rather
+than a polling loop and a fixed delay. On real pages that is 2–3× faster for
+byte-identical output:
+
+| page | `--wait load` (default) | old fixed 250 ms settle |
+| --- | --- | --- |
+| `example.com` | 7 ms | 258 ms |
+| `github.com/trending` | 115 ms | 340 ms |
+| `nextjs.org` | 160 ms | 365 ms |
+| `news.ycombinator.com` | 218 ms | 466 ms |
+
+A client-rendered app whose content arrives *after* load needs a real signal,
+not a bigger guess — the old 250 ms settle missed that content too:
+
+```bash
+agent-browser markdown https://some-spa.example --wait idle
+```
+
+| mode | waits for | use it when |
+| --- | --- | --- |
+| `domcontentloaded` | the DOM is parsed | you only need markup that shipped in the HTML |
+| `load` *(default)* | the load event | almost always |
+| `idle` | the network goes quiet | the result looks like an empty shell |
+
 ## Any other harness
 
 If your framework speaks JSON Schema, it can drive agent-browser without this

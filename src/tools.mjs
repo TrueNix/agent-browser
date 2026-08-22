@@ -27,6 +27,21 @@
 
 const url = { type: 'string', description: 'Absolute http/https URL to load.' };
 
+/**
+ * Offered on every tool that loads a page. Cheap to ignore, and the answer when
+ * an agent gets back an empty-looking shell: the content renders after load.
+ */
+const waitUntil = {
+  type: 'string',
+  enum: ['domcontentloaded', 'load', 'idle'],
+  description:
+    'When to consider the page ready. "load" is the default. Use "idle" when content '
+    + 'arrives after the load event (client-rendered apps) and the result looks empty.',
+};
+
+/** Nav flags shared by every out-of-process tool form. */
+const navFlags = (args) => (args.waitUntil ? ['--wait', args.waitUntil] : []);
+
 const linkStyle = {
   type: 'string',
   enum: ['inline', 'relative', 'text'],
@@ -51,6 +66,7 @@ export const TOOLS = [
         wholePage: { type: 'boolean', description: 'Include the whole body instead of only the main/article element.' },
         links: linkStyle,
         maxRows: { type: 'number', description: 'Cap on table rows (default 60, 0 for no cap). Truncation is stated in the output.' },
+        waitUntil,
       },
       required: ['url'],
     },
@@ -60,7 +76,7 @@ export const TOOLS = [
       maxRows: args.maxRows,
     }),
     cli: (args) => {
-      const argv = ['markdown', args.url];
+      const argv = ['markdown', args.url, ...navFlags(args)];
       if (args.wholePage === true) argv.push('--raw');
       if (args.links) argv.push('--links', args.links);
       if (args.maxRows !== undefined) argv.push('--max-rows', String(args.maxRows));
@@ -72,20 +88,20 @@ export const TOOLS = [
     description: 'Render a URL in a local browser and return only its visible text. Use when page structure does not matter.',
     inputSchema: {
       type: 'object',
-      properties: { url, mainOnly: { type: 'boolean', description: 'Restrict to the main/article element.' } },
+      properties: { url, mainOnly: { type: 'boolean', description: 'Restrict to the main/article element.' }, waitUntil },
       required: ['url'],
     },
     run: (session, args) => session.text({ main: args.mainOnly === true }),
-    cli: (args) => (args.mainOnly === true ? ['text', args.url, '--main'] : ['text', args.url]),
+    cli: (args) => ['text', args.url, ...navFlags(args), ...(args.mainOnly === true ? ['--main'] : [])],
   },
   {
     name: 'browser_html',
     description:
       'Render a URL and return the full serialized DOM after JavaScript has run. Token-heavy — '
       + 'prefer browser_markdown unless exact markup matters.',
-    inputSchema: { type: 'object', properties: { url }, required: ['url'] },
+    inputSchema: { type: 'object', properties: { url, waitUntil }, required: ['url'] },
     run: (session) => session.html(),
-    cli: (args) => ['html', args.url],
+    cli: (args) => ['html', args.url, ...navFlags(args)],
   },
   {
     name: 'browser_links',
@@ -94,12 +110,12 @@ export const TOOLS = [
       + 'the list was capped. Useful for crawling or locating a target page.',
     inputSchema: {
       type: 'object',
-      properties: { url, limit: { type: 'number', description: 'Maximum links to return (default 500, 0 for no cap).' } },
+      properties: { url, limit: { type: 'number', description: 'Maximum links to return (default 500, 0 for no cap).' }, waitUntil },
       required: ['url'],
     },
     run: (session, args) => session.links({ limit: args.limit ?? 500 }),
     cli: (args) => {
-      const argv = ['links', args.url];
+      const argv = ['links', args.url, ...navFlags(args)];
       if (args.limit !== undefined) argv.push('--limit', String(args.limit));
       return argv;
     },
@@ -113,13 +129,14 @@ export const TOOLS = [
         url,
         fullPage: { type: 'boolean', description: 'Capture the entire scrollable document.' },
         out: { type: 'string', description: 'Output path, for harnesses that read the image from disk.' },
+        waitUntil,
       },
       required: ['url'],
     },
     image: true,
     run: (session, args) => session.screenshot({ fullPage: args.fullPage === true }),
     cli: (args) => {
-      const argv = ['screenshot', args.url, '-o', args.out || 'browser-screenshot.png'];
+      const argv = ['screenshot', args.url, ...navFlags(args), '-o', args.out || 'browser-screenshot.png'];
       if (args.fullPage === true) argv.push('--full');
       return argv;
     },
@@ -134,11 +151,12 @@ export const TOOLS = [
       properties: {
         url,
         expression: { type: 'string', description: 'JS expression evaluated in page context; its value is returned.' },
+        waitUntil,
       },
       required: ['url', 'expression'],
     },
     run: (session, args) => session.evaluate(args.expression),
-    cli: (args) => ['eval', args.url, args.expression],
+    cli: (args) => ['eval', args.url, ...navFlags(args), args.expression],
   },
   {
     name: 'browser_accessibility_tree',
@@ -148,12 +166,12 @@ export const TOOLS = [
       + 'is never mistaken for a complete one.',
     inputSchema: {
       type: 'object',
-      properties: { url, limit: { type: 'number', description: 'Maximum nodes to return (default 1500, 0 for no cap).' } },
+      properties: { url, limit: { type: 'number', description: 'Maximum nodes to return (default 1500, 0 for no cap).' }, waitUntil },
       required: ['url'],
     },
     run: (session, args) => session.accessibilityTree({ limit: args.limit ?? 1500 }),
     cli: (args) => {
-      const argv = ['a11y', args.url];
+      const argv = ['a11y', args.url, ...navFlags(args)];
       if (args.limit !== undefined) argv.push('--limit', String(args.limit));
       return argv;
     },

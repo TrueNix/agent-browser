@@ -13,6 +13,16 @@ import { rootPicker, htmlToMarkdown } from './extract.mjs';
 
 const DEFAULT_TIMEOUT_MS = 45000;
 
+/** navigate()'s waitUntil vocabulary, mapped to CDP lifecycle event names. */
+const LIFECYCLE = {
+  domcontentloaded: 'DOMContentLoaded',
+  load: 'load',
+  // networkAlmostIdle (<=2 connections for 500ms) rather than networkIdle:
+  // a page holding one analytics beacon or a long-poll open never reaches
+  // full idle, and waiting for it turns into the timeout.
+  idle: 'networkAlmostIdle',
+};
+
 export class BrowserError extends Error {
   constructor(message, details) {
     super(message);
@@ -144,8 +154,14 @@ export class BrowserSession {
     const session = new BrowserSession(connection, ws);
     session.browserContextId = browserContextId;
     session.stealth = stealth;
+    session.watchLifecycle();
 
     await connection.send('Page.enable', {}, { timeoutMs });
+
+    // Lifecycle events turn navigation from a polling loop into an event wait.
+    // They are pure CDP observation with no page-visible effect, so unlike
+    // Runtime.enable they cost nothing in detectability.
+    await connection.send('Page.setLifecycleEventsEnabled', { enabled: true }, { timeoutMs }).catch(() => {});
 
     // Runtime.enable is the loudest CDP tell — it powers the classic
     // console/Error.stack detector. Runtime.evaluate does NOT require it
@@ -184,6 +200,56 @@ export class BrowserSession {
     return session;
   }
 
+  /**
+   * Track page lifecycle milestones so navigate() can wait on an event instead
+   * of polling document.readyState. Public only because open() calls it.
+   */
+  watchLifecycle() {
+    this.connection.on('Page.lifecycleEvent', (params) => {
+      for (const waiter of [...this.#lifecycleWaiters]) {
+        // loaderId pins the wait to THIS navigation; without it a late event
+        // from the previous page would satisfy the new one.
+        if (waiter.loaderId && params.loaderId !== waiter.loaderId) continue;
+        if (params.name !== waiter.name) continue;
+        this.#lifecycleWaiters.delete(waiter);
+        waiter.resolve();
+      }
+    });
+  }
+
+  #lifecycleWaiters = new Set();
+
+  /**
+   * Resolve when the page reaches `name` for this navigation.
+   *
+   * The event is the fast path. A coarse readyState poll runs alongside it as a
+   * safety net for the cases that produce no lifecycle event at all — a
+   * same-document (anchor) navigation, or an endpoint that ignored
+   * setLifecycleEventsEnabled — so a missed event costs latency, never a hang.
+   * The poll only short-circuits for 'load', which readyState can actually
+   * observe; the idle milestones have no equivalent and wait for the event.
+   */
+  async #awaitLifecycle(name, loaderId, timeoutMs) {
+    const waiter = { name, loaderId };
+    const event = new Promise((resolve) => { waiter.resolve = resolve; });
+    this.#lifecycleWaiters.add(waiter);
+    const deadline = Date.now() + timeoutMs;
+    try {
+      for (;;) {
+        const reached = await Promise.race([event.then(() => true), sleep(500).then(() => false)]);
+        if (reached) return true;
+        if (this.lastFailure) return false;
+        if (name === 'load') {
+          const state = await this.readState();
+          if (state.readyState === 'complete') return true;
+        }
+        if (Date.now() >= deadline) return false;
+      }
+    } finally {
+      this.#lifecycleWaiters.delete(waiter);
+    }
+  }
+
   #watchNetwork() {
     this.connection.on('Network.responseReceived', (params) => {
       if (params.type === 'Document') {
@@ -210,31 +276,47 @@ export class BrowserSession {
   }
 
   /**
-   * Navigate and wait until the document finishes parsing.
+   * Navigate and wait for the page to reach a chosen milestone.
    *
    * Outcomes are classified from the Network domain rather than from
    * Page.navigate's result, which can return a normal frameId even when
    * nothing loaded. An HTTP status is returned rather than thrown, because a
    * 404 or 500 body is still a real page an agent may want to read; a hard
    * transport failure throws.
+   *
+   * `waitUntil` picks the milestone:
+   *   'domcontentloaded'  the DOM is parsed; subresources may still be coming
+   *   'load'              the load event fired (default)
+   *   'idle'              plus the network has gone quiet — for a client-rendered
+   *                       app whose content arrives after load
+   *
+   * `settleMs` is an extra fixed pause afterwards. It defaults to 0 because it
+   * is a guess by construction; when a page genuinely renders late, 'idle'
+   * waits for the real signal instead of a number someone picked.
+   *
+   * @param {{timeoutMs?: number, waitUntil?: 'domcontentloaded'|'load'|'idle',
+   *          settleMs?: number, throwOnHttpError?: boolean}} [options]
    */
-  async navigate(url, { timeoutMs = DEFAULT_TIMEOUT_MS, settleMs = 250, throwOnHttpError = false } = {}) {
+  async navigate(url, {
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    waitUntil = 'load',
+    settleMs = 0,
+    throwOnHttpError = false,
+  } = {}) {
     this.lastDocument = null;
     this.lastFailure = null;
+
+    const milestone = LIFECYCLE[waitUntil];
+    if (!milestone) {
+      throw new BrowserError(`unknown waitUntil: ${waitUntil} (expected ${Object.keys(LIFECYCLE).join(', ')})`);
+    }
 
     const result = await this.send('Page.navigate', { url }, { timeoutMs });
     if (result.errorText) throw new BrowserError(`navigation to ${url} failed: ${result.errorText}`, result);
 
-    const deadline = Date.now() + timeoutMs;
-    let state = null;
-    while (Date.now() < deadline) {
-      state = await this.readState();
-      if (state.readyState === 'complete') break;
-      if (this.lastFailure) break;
-      await sleep(200);
-    }
+    await this.#awaitLifecycle(milestone, result.loaderId, timeoutMs);
     if (settleMs > 0) await sleep(settleMs);
-    state = state ?? await this.readState();
+    const state = await this.readState();
 
     if (this.lastFailure && !this.lastFailure.canceled) {
       throw new BrowserError(

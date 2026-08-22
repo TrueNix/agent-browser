@@ -4,6 +4,10 @@
 
 ### Breaking
 
+- `navigate()`'s `settleMs` now defaults to `0` instead of `250`. The pause was
+  never load-bearing — `load` produces identical output on every page measured —
+  and where it mattered it was too short anyway. Use `waitUntil: 'idle'` for
+  late-rendering pages, or pass `settleMs` explicitly to restore the old pause.
 - `session.links()` now returns `{ links, total, truncated }` and
   `session.accessibilityTree()` returns `{ nodes, total, truncated }`, instead of
   bare arrays. Both were capped silently before — 500 links, and an unbounded
@@ -25,6 +29,16 @@
 
 ### Added
 
+- **Event-driven navigation.** `navigate()` waited by polling
+  `document.readyState` every 200 ms and then sleeping a flat 250 ms. It now
+  waits on CDP lifecycle events: byte-identical output, 2–3× faster
+  (`example.com` 258 ms → 7 ms, `news.ycombinator.com` 466 ms → 218 ms).
+- `waitUntil` on `navigate()` and on every page-loading tool —
+  `domcontentloaded`, `load` (default), `idle`. The fixed settle was a guess in
+  both directions: it taxed every page a quarter second *and* still missed
+  content rendered after load. `idle` waits for the network to go quiet, which
+  is the actual signal. CLI: `--wait <mode>`, plus `--settle <ms>` for the rare
+  case that wants a raw pause.
 - `links` extraction mode — `inline` (default), `relative`, `text`. URLs are 36%
   of the characters on a Wikipedia article and 81% on `github.com/trending`, so
   `text` roughly halves a link-dense page when the agent is reading rather than
