@@ -12,7 +12,8 @@
  * so MCP and DSH can never drift apart again.
  */
 import { readFileSync } from 'node:fs';
-import { withBrowser, withSession } from './client.mjs';
+import { withSession } from './client.mjs';
+import { withPooledSession, shutdownPool } from './pool.mjs';
 import { findTool, toolCatalogue } from './tools.mjs';
 
 const PROTOCOL_VERSION = '2024-11-05';
@@ -23,11 +24,19 @@ const VERSION = (() => {
   catch { return '0.0.0'; }
 })();
 
-/** Attach to a running browser when configured, otherwise launch a hardened one. */
+/**
+ * Attach to a running browser when configured, otherwise use the shared one.
+ *
+ * This used to launch a whole browser per tool call. Chrome's floor is ~420 MB
+ * across ~18 processes, so three concurrent calls cost 1289 MB and 44 processes;
+ * sharing one browser and giving each call its own isolated context costs
+ * 736 MB and 20 processes for the same work in the same wall clock. Isolation is
+ * unchanged — the per-call browser context was always what provided it.
+ */
 function runSession(body) {
   const endpoint = process.env.AGENT_BROWSER_ENDPOINT;
   if (endpoint) return withSession({ endpoint, stealth: true }, body);
-  return withBrowser({ headless: true, gpu: 'auto', stealth: true }, body);
+  return withPooledSession({ headless: true, gpu: 'auto', stealth: true }, body);
 }
 
 export async function startMcpServer() {
@@ -107,4 +116,6 @@ export async function startMcpServer() {
 
   process.stderr.write('agent-browser MCP server ready on stdio\n');
   await new Promise((resolve) => process.stdin.on('end', resolve));
+  // Do not leave the shared browser running after the client disconnects.
+  await shutdownPool();
 }

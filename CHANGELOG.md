@@ -96,6 +96,18 @@ names, new optional arguments. Only the library API changed shape.
   any harness that reads JSON Schema can drive the browser. Each tool carries
   both an in-process `run(session, args)` and an out-of-process `cli(args)`.
 
+- **The MCP server now shares one browser across tool calls** instead of
+  launching one per call, each call still getting its own isolated context.
+  Chrome costs ~420 MB PSS across ~18 processes before it loads anything, so the
+  count of live browsers is what dominates: three concurrent heavy pages went
+  from 1289 MB / 44 processes to 654 MB / 20 processes in the same wall clock,
+  and a warm repeat call is ~2x faster because it skips the launch. The browser
+  idles out after 30 s (`AGENT_BROWSER_IDLE_MS`). Exposed as
+  `@truenix/agent-browser/pool`. Trade-off: tasks share a process tree, so a
+  browser crash affects everything in flight; a dead browser is detected and
+  relaunched. `withBrowser` is unchanged for callers who want one browser each.
+- `launchBrowser({ flags: [...] })` appends extra Chrome switches, after the
+  built-in ones so they can be overridden.
 - Tool descriptions and CLI help now route small questions to `browser_evaluate`
   / `eval` instead of a whole-page render. Found by benchmarking two agents on
   the same three questions: the agent-browser one pulled 77 kB of Markdown to

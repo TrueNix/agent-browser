@@ -238,6 +238,47 @@ take 5.9 s across three cold starts, 3.2 s against a warm one.
 
 `--endpoint` attaches to an already-running browser instead of launching one — useful for reusing a single long-lived browser across many calls.
 
+## Memory
+
+Chrome's floor is about **420 MB PSS across 18 processes** before it loads
+anything, and that floor is Chrome's, not this package's — flag tuning moves it
+~5%, and the flag that moves it further (`--enable-low-end-device-mode`) reports
+`navigator.deviceMemory: 2` next to 24 cores, an impossible machine and exactly
+the kind of inconsistency that gets a browser flagged. So the lever is *fewer
+browsers*, not smaller ones.
+
+The MCP server keeps one browser and gives each tool call its own isolated
+context. Three heavy pages fetched concurrently:
+
+| | peak PSS | processes | wall clock |
+| --- | --- | --- | --- |
+| a browser per call | 1289 MB | 44 | 2114 ms |
+| one browser, 3 contexts | **654 MB** | **20** | 2049 ms |
+
+Isolation is unchanged — the per-call browser context was always what provided
+it. The browser shuts down after 30 s idle (`AGENT_BROWSER_IDLE_MS`, `0` to close
+immediately), so a long-lived server does not sit on 420 MB between
+conversations. A repeat call while it is warm skips the launch entirely and runs
+about twice as fast.
+
+The trade: tasks share a process tree, so a browser-level crash takes out
+everything in flight rather than one call. A dead browser is detected and
+relaunched on the next call. If you need blast-radius isolation per task, use
+`withBrowser`, which still gives each call its own browser.
+
+```js
+import { withPooledSession, shutdownPool } from '@truenix/agent-browser/pool';
+
+await withPooledSession({}, async (session) => {
+  await session.navigate('https://example.com');
+  return session.markdown();
+});
+await shutdownPool();   // or let it idle out
+```
+
+For the CLI, each invocation is its own process, so reuse means pointing
+`--endpoint` at a browser you keep alive yourself.
+
 ## Bot detection
 
 Run it yourself: `npm run test:bot`. Latest result:

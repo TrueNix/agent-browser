@@ -85,7 +85,7 @@ export function hasGpu() {
   catch { return false; }
 }
 
-function baseFlags({ width, height, lang, gpu, headless, profileDir, blockImages, userAgent }) {
+function baseFlags({ width, height, lang, gpu, headless, profileDir, blockImages, userAgent, extraFlags = [] }) {
   const flags = [
     `--user-data-dir=${profileDir}`,
     // The UA MUST be set at launch, not only through
@@ -137,7 +137,8 @@ function baseFlags({ width, height, lang, gpu, headless, profileDir, blockImages
   }
 
   if (process.getuid && process.getuid() === 0) flags.push('--no-sandbox');
-  return flags;
+  // Caller-supplied switches go last so they can override anything above.
+  return flags.concat(extraFlags);
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -301,7 +302,7 @@ export async function launchBrowser(options = {}) {
   const identity = options.identity ?? deriveIdentity(browserVersion(binary));
   const flags = baseFlags({
     width, height, lang, gpu: useGpu, headless, profileDir, blockImages,
-    userAgent: identity.userAgent,
+    userAgent: identity.userAgent, extraFlags: options.flags ?? [],
   });
 
   const child = spawn(binary, [...flags, 'about:blank'], {

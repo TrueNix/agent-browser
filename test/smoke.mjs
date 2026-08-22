@@ -388,6 +388,47 @@ await test('a bounded accessibility tree reports what it clipped', async () => {
   });
 });
 
+// Chrome's floor is ~420 MB across ~18 processes, so the cost that matters is
+// how many browsers are alive at once, not how big one is. The pool keeps one.
+await test('the pool reuses one browser across calls', async () => {
+  const { withPooledSession, poolStatus, shutdownPool } = await import('../src/pool.mjs');
+  try {
+    await withPooledSession({}, (s) => s.navigate('https://example.com'));
+    const first = poolStatus().pid;
+    assert(first !== null, 'a browser should be up after the first call');
+    await withPooledSession({}, (s) => s.navigate('https://example.com'));
+    assert(poolStatus().pid === first, 'the second call must reuse the same browser');
+    assert(poolStatus().active === 0, 'no session should be left checked out');
+  } finally { await shutdownPool(); }
+});
+
+await test('pooled contexts still do not share storage', async () => {
+  const { withPooledSession, shutdownPool } = await import('../src/pool.mjs');
+  try {
+    await withPooledSession({}, async (s) => {
+      await s.navigate('https://example.com');
+      await s.evaluate("localStorage.setItem('pool-probe','leaked')");
+    });
+    const seen = await withPooledSession({}, async (s) => {
+      await s.navigate('https://example.com');
+      return s.evaluate("localStorage.getItem('pool-probe')");
+    });
+    assert(seen === null, `sharing a browser must not share storage, got ${seen}`);
+  } finally { await shutdownPool(); }
+});
+
+await test('shutdownPool closes the shared browser', async () => {
+  const { withPooledSession, poolStatus, shutdownPool } = await import('../src/pool.mjs');
+  await withPooledSession({}, (s) => s.navigate('https://example.com'));
+  const pid = poolStatus().pid;
+  await shutdownPool();
+  assert(poolStatus().up === false, 'pool must report itself down');
+  await new Promise((r) => setTimeout(r, 800));
+  let alive = true;
+  try { process.kill(pid, 0); } catch { alive = false; }
+  assert(!alive, 'the browser process should be gone');
+});
+
 await test('isolated contexts do not share storage', async () => {
   const write = await withBrowser({}, async (session) => {
     await session.navigate('https://example.com');
