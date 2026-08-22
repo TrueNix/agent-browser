@@ -29,7 +29,7 @@
  *     navigator.userAgent looks clean. We override both together.
  */
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, delimiter, isAbsolute } from 'node:path';
 import { request as httpRequest } from 'node:http';
@@ -142,6 +142,95 @@ function baseFlags({ width, height, lang, gpu, headless, profileDir, blockImages
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Marker file written into each profile so an abandoned one can be identified. */
+const OWNER_FILE = 'agent-browser-owner.json';
+
+/** Teardown for every browser this process has open, for the signal paths. */
+const liveCleanups = new Set();
+let signalsHooked = false;
+
+function hookSignals() {
+  if (signalsHooked) return;
+  signalsHooked = true;
+  // Without these, a SIGTERM terminated Node before any `finally` ran and left
+  // the whole browser behind — measured at 15 orphaned processes per interrupt.
+  // SIGKILL still cannot be caught; reapAbandoned() is what covers that.
+  const codes = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 };
+  for (const signal of Object.keys(codes)) {
+    process.on(signal, () => {
+      for (const fn of [...liveCleanups]) { try { fn({ immediate: true }); } catch { /* keep going */ } }
+      process.exit(codes[signal]);
+    });
+  }
+  process.on('exit', () => {
+    for (const fn of [...liveCleanups]) { try { fn({ immediate: true }); } catch { /* keep going */ } }
+  });
+}
+
+const alive = (pid) => {
+  if (!pid) return false;
+  try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; }
+};
+
+/**
+ * Kill Chrome instances whose owning process is gone, and delete their profiles.
+ *
+ * The normal teardown path cannot cover everything. SIGKILL is uncatchable, and
+ * before this existed even SIGTERM terminated Node without running any `finally`,
+ * so an interrupted call stranded a whole browser — measured at 14-15 orphaned
+ * processes and ~420 MB apiece, plus a profile directory that lived forever.
+ * Agents get interrupted constantly (timeouts, cancellation), so those pile up.
+ *
+ * Sweeping at launch bounds the damage: whatever a hard kill leaves behind is
+ * reclaimed by the next launch, so the steady state is at most one orphan rather
+ * than one per interrupted call. A live sibling is never touched, because its
+ * owner pid is still running.
+ */
+export function reapAbandoned() {
+  let browsers = 0;
+  let profiles = 0;
+  let entries = [];
+  // Every profile directory currently named on a live command line. A profile
+  // written by an older build carries no owner marker, and deleting one out
+  // from under a running sibling would break it — so liveness is checked
+  // against the process table, not just against the marker.
+  let inUse = '';
+  try { inUse = execFileSync('ps', ['-eo', 'args'], { encoding: 'utf8', timeout: 5000 }); }
+  catch { inUse = ''; }
+  try { entries = readdirSync(tmpdir()).filter((name) => name.startsWith('agentbrowser-')); }
+  catch { return { browsers, profiles }; }
+
+  for (const name of entries) {
+    const dir = join(tmpdir(), name);
+    let owner = null;
+    try { owner = JSON.parse(readFileSync(join(dir, OWNER_FILE), 'utf8')); }
+    catch { /* no marker: an older build, or a profile still being created */ }
+
+    if (owner) {
+      // A marker settles ownership outright. If the owner is gone this profile
+      // is abandoned — reap it even though its Chrome is still running, because
+      // a running Chrome with a dead owner is exactly the orphan we are after.
+      if (alive(owner.ownerPid)) continue;
+    } else {
+      // No marker, so the profile cannot be attributed — an older build, or a
+      // launch still in progress. Only reclaim it if nothing is using it and it
+      // has had time to settle; deleting a live sibling's profile would break it.
+      if (inUse.includes(`--user-data-dir=${dir}`)) continue;
+      try {
+        const { mtimeMs } = statSync(dir);
+        if (Date.now() - mtimeMs < 60000) continue;
+      } catch { continue; }
+    }
+
+    if (owner?.chromePid && alive(owner.chromePid)) {
+      // Chrome cleans up its own children when the main process goes down.
+      try { process.kill(owner.chromePid, 'SIGKILL'); browsers += 1; } catch { /* already gone */ }
+    }
+    try { rmSync(dir, { recursive: true, force: true }); profiles += 1; } catch { /* best effort */ }
+  }
+  return { browsers, profiles };
+}
 
 /**
  * Read the DevTools endpoint Chrome writes into its profile.
@@ -294,6 +383,9 @@ export async function launchBrowser(options = {}) {
     );
   }
 
+  // Reclaim anything a previously killed run left behind before adding to it.
+  try { reapAbandoned(); } catch { /* never block a launch on cleanup */ }
+
   const useGpu = gpu === 'auto' ? hasGpu() : Boolean(gpu);
   const profileDir = mkdtempSync(join(tmpdir(), 'agentbrowser-'));
   // Derive the identity from the binary's own version BEFORE launching, so the
@@ -309,6 +401,13 @@ export async function launchBrowser(options = {}) {
     stdio: ['ignore', 'ignore', 'pipe'],
     detached: false,
   });
+
+  // Record who owns this profile, so a later run can tell an abandoned browser
+  // from a live sibling's.
+  try {
+    writeFileSync(join(profileDir, OWNER_FILE),
+      JSON.stringify({ ownerPid: process.pid, chromePid: child.pid, started: Date.now() }));
+  } catch { /* non-fatal: the sweep falls back to an mtime check */ }
 
   let stderr = '';
   child.stderr.on('data', (d) => { if (stderr.length < 4000) stderr += d.toString(); });
@@ -349,13 +448,29 @@ export async function launchBrowser(options = {}) {
     reportedUserAgent = version['User-Agent'] || '';
   } catch { /* non-fatal */ }
 
-  function cleanup() {
-    try { child.kill('SIGTERM'); } catch { /* already gone */ }
-    if (!keepProfile) {
-      // Give Chrome a moment to release the profile before removing it.
-      setTimeout(() => { try { rmSync(profileDir, { recursive: true, force: true }); } catch { /* best effort */ } }, 500);
-    }
+  function cleanup({ immediate = false } = {}) {
+    liveCleanups.delete(cleanup);
+    // On a signal there is no time to be polite, and no event loop left to run
+    // a timer on — kill hard and remove synchronously. A file Chrome still holds
+    // may survive that; reapAbandoned() collects it on the next launch.
+    try { child.kill(immediate ? 'SIGKILL' : 'SIGTERM'); } catch { /* already gone */ }
+    if (keepProfile) return;
+    let done = false;
+    const remove = () => {
+      if (done) return;
+      done = true;
+      process.removeListener('exit', remove);
+      try { rmSync(profileDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    };
+    if (immediate) { remove(); return; }
+    // Give Chrome a moment to release the profile, but never hold the process
+    // open for it: whichever comes first, exit or the timer, removes the dir.
+    const timer = setTimeout(remove, 500);
+    timer.unref?.();
+    process.once('exit', remove);
   }
+  liveCleanups.add(cleanup);
+  hookSignals();
 
   return {
     endpoint: info.endpoint,

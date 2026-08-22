@@ -5,12 +5,12 @@
  * Set AGENT_BROWSER_SKIP_NETWORK=1 to run only the checks that need no browser.
  */
 import { spawn } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { withBrowser, BrowserSession, buildWebglPatch } from '../src/client.mjs';
-import { findBrowser, deriveIdentity, hasGpu, launchBrowser } from '../src/browser.mjs';
+import { findBrowser, deriveIdentity, hasGpu, launchBrowser, reapAbandoned } from '../src/browser.mjs';
 import { addToPackageJson, removeFromPackageJson } from '../src/install.mjs';
 import { TOOLS, findTool, toolCatalogue } from '../src/tools.mjs';
 import { quote } from '../cordis/plugin.mjs';
@@ -85,7 +85,10 @@ await test('open() refuses to run without an endpoint', async () => {
 // A spawn failure used to arrive as an unhandled 'error' event, which killed the
 // whole process: the CLI's catch never ran and an MCP server died mid-session.
 await test('an unlaunchable binary rejects instead of killing the process', async () => {
-  const fake = join(mkdtempSync(join(tmpdir(), 'agentbrowser-test-')), 'not-executable');
+  // Not named agentbrowser-*: that prefix is the reaper's, and a test fixture
+  // has no business looking like a real profile.
+  const home = mkdtempSync(join(tmpdir(), 'ab-fixture-'));
+  const fake = join(home, 'not-executable');
   writeFileSync(fake, '#!/nope\n');
   chmodSync(fake, 0o644);
   let message = null;
@@ -93,12 +96,46 @@ await test('an unlaunchable binary rejects instead of killing the process', asyn
   catch (err) { message = err.message; }
   assert(message !== null, 'launchBrowser must reject for a binary it cannot spawn');
   assert(/failed to start/.test(message), `expected a start failure, got: ${message}`);
+  rmSync(home, { recursive: true, force: true });
 });
 
 await test('the WebGL patch keeps a native-looking toString', () => {
   const src = buildWebglPatch('V', 'R');
   assert(src.includes('new Proxy'), 'must wrap the native function in a Proxy');
   assert(src.includes('37445') && src.includes('37446'), 'must handle both UNMASKED_* parameters');
+});
+
+console.log('\nabandoned-browser reaping (offline)');
+
+// A SIGKILLed run cannot clean up after itself — measured at 14 orphaned Chrome
+// processes and a profile directory that lived forever. The reaper is what
+// bounds that to one orphan instead of one per interrupted call.
+await test('reaps a profile whose owner is gone', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agentbrowser-'));
+  // pid 2^22 is above the default pid_max, so it can never be live.
+  writeFileSync(join(dir, 'agent-browser-owner.json'),
+    JSON.stringify({ ownerPid: 4194304, chromePid: null, started: Date.now() }));
+  reapAbandoned();
+  assert(!existsSync(dir), 'an abandoned profile must be removed');
+});
+
+await test('never reaps a profile a live process owns', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agentbrowser-'));
+  writeFileSync(join(dir, 'agent-browser-owner.json'),
+    JSON.stringify({ ownerPid: process.pid, chromePid: null, started: Date.now() }));
+  try {
+    reapAbandoned();
+    assert(existsSync(dir), 'a live sibling\'s profile must survive the sweep');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+await test('leaves an unattributable profile alone until it settles', () => {
+  // No marker at all — an older build, or a launch still in progress.
+  const dir = mkdtempSync(join(tmpdir(), 'agentbrowser-'));
+  try {
+    reapAbandoned();
+    assert(existsSync(dir), 'a fresh unmarked profile must not be deleted mid-launch');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 console.log('\nDSH profile wiring (offline)');

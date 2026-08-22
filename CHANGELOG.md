@@ -41,6 +41,20 @@ names, new optional arguments. Only the library API changed shape.
 
 ### Fixed
 
+- **An interrupted call stranded the whole browser.** The CLI had no signal
+  handlers, so a SIGTERM terminated Node before any `finally` ran: measured at
+  15 orphaned Chrome processes (~420 MB) plus a leaked profile directory, per
+  interrupt. Agents get interrupted constantly — timeouts, cancellation — so
+  those accumulated without bound; one session of testing left 57 profiles and
+  60 MB in `/tmp`. Now SIGINT/SIGTERM/SIGHUP tear the browser down and exit with
+  the conventional code, and every launch first calls `reapAbandoned()`, which
+  kills browsers whose owning process is gone and deletes their profiles. That
+  bounds SIGKILL — uncatchable by definition — to at most one orphan, reclaimed
+  by the next launch, instead of one per interrupted call. Verified: 30
+  concurrent CLI calls leave zero processes and zero profiles.
+  A profile is only reclaimed when its owner marker names a dead process, or
+  when it carries no marker, nothing has it open, and it has sat untouched for
+  60 s — so a live sibling, including one from an older build, is never touched.
 - **Table cells kept none of their inline markup.** Cells were rendered with
   `innerText`, so every link, code span and emphasis inside a table was
   discarded. On a table-based layout that is the entire page: Hacker News has

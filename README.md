@@ -279,6 +279,23 @@ await shutdownPool();   // or let it idle out
 For the CLI, each invocation is its own process, so reuse means pointing
 `--endpoint` at a browser you keep alive yourself.
 
+### Cleaning up after itself
+
+Every launch writes an owner marker into its temp profile and sweeps for
+profiles whose owner has died, killing the browser still attached to them.
+Combined with SIGINT/SIGTERM/SIGHUP handlers, that gives:
+
+| how the call ends | orphaned processes | after the next launch |
+| --- | --- | --- |
+| normally | 0 | 0 |
+| SIGTERM / SIGINT | 0 | 0 |
+| SIGKILL (uncatchable) | 1 browser | 0 |
+
+So a hard kill costs at most one stranded browser, not one per interrupted
+call. Ten concurrent CLI calls, repeated, leave nothing behind. A live browser
+is never swept — its owner process is still running, and an unattributable
+profile is left alone until nothing has it open and it has been idle 60 s.
+
 ## Bot detection
 
 Run it yourself: `npm run test:bot`. Latest result:
