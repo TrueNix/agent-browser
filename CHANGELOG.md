@@ -110,6 +110,14 @@ names, new optional arguments. Only the library API changed shape.
   any harness that reads JSON Schema can drive the browser. Each tool carries
   both an in-process `run(session, args)` and an out-of-process `cli(args)`.
 
+- **`--daemon`: one resident browser shared by every CLI call.** Each CLI
+  invocation is its own process, so it could never reuse anything — ten
+  concurrent calls meant ten cold Chrome launches and ~140 processes. With the
+  daemon that is 32 processes, three sequential lookups drop from 5330 ms to
+  3254 ms, and ten concurrent from 1443 ms to 1144 ms. Opt-in via `--daemon` or
+  `AGENT_BROWSER_DAEMON=1`; `agent-browser daemon --status|--stop` manages it;
+  it exits after five minutes idle (`AGENT_BROWSER_DAEMON_IDLE_MS`). Exposed as
+  `@truenix/agent-browser/daemon`.
 - **The MCP server now shares one browser across tool calls** instead of
   launching one per call, each call still getting its own isolated context.
   Chrome costs ~420 MB PSS across ~18 processes before it loads anything, so the

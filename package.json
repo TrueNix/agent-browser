@@ -51,7 +51,8 @@
     "./ws": "./src/ws.mjs",
     "./cordis": "./cordis/plugin.mjs",
     "./tools": "./src/tools.mjs",
-    "./pool": "./src/pool.mjs"
+    "./pool": "./src/pool.mjs",
+    "./daemon": "./src/daemon.mjs"
   },
   "files": [
     "src",

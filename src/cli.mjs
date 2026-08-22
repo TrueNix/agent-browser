@@ -10,6 +10,7 @@ import { withBrowser, withSession } from './client.mjs';
 import { findBrowser, hasGpu, browserVersion } from './browser.mjs';
 import { startMcpServer } from './mcp.mjs';
 import { toolCatalogue } from './tools.mjs';
+import { withDaemonSession, runDaemon, daemonStatus, stopDaemon } from './daemon.mjs';
 import { install as installDsh, uninstall as uninstallDsh } from './install.mjs';
 
 const USAGE = `agent-browser — a hardened local browser for AI agents
@@ -29,6 +30,7 @@ Commands:
   probe                   Report browser, GPU and capability flags
   mcp                     Run as an MCP server over stdio
   tools [--format f]      Print the tool schemas (mcp | openai | anthropic)
+  daemon                  Run the shared-browser daemon (--stop, --status)
   install [--profile web] Auto-wire into a DSH profile (edits cordis.patch.yml + package.json)
   uninstall [--profile web] Remove from a DSH profile
 
@@ -48,6 +50,7 @@ Options:
       --max-rows <n>      Table row cap for markdown (default 60, 0 = no cap)
       --limit <n>         Cap for links/a11y results (0 = no cap)
       --full              Full-page screenshot
+      --daemon            Use (and start) the shared-browser daemon — see below
       --endpoint <ws>     Attach to an ALREADY RUNNING browser instead of launching
       --timeout <ms>      Per-command timeout (default 45000)
       --json              Machine-readable output
@@ -68,6 +71,14 @@ Note on --links: URLs are 36% of the characters on a Wikipedia article and 81%
 on github.com/trending. "--links text" keeps the anchor text and drops the URL,
 which roughly halves a link-dense page; "--links relative" drops just the site
 origin. Stay on the default "inline" when the agent needs somewhere to navigate.
+
+Note on --daemon: every CLI call is its own process, so by default each one
+cold-starts its own Chrome — ten concurrent calls means ten browsers. With
+--daemon (or AGENT_BROWSER_DAEMON=1) they share one resident browser, each still
+getting its own isolated context. Measured: three lookups take 5.9s cold and
+3.2s warm. The daemon starts on demand and exits after 5 minutes idle
+(AGENT_BROWSER_DAEMON_IDLE_MS); "agent-browser daemon --status" inspects it and
+"--stop" shuts it down.
 
 Note on --wait: the default waits for the load event, which is event-driven and
 typically 2-3x faster than polling. A client-rendered app whose content arrives
@@ -99,6 +110,9 @@ function parseArgs(argv) {
       case '--max-rows': opts.maxRows = Number(take()); break;
       case '--limit': opts.limit = Number(take()); break;
       case '--format': opts.format = take(); break;
+      case '--daemon': opts.daemon = true; break;
+      case '--stop': opts.stop = true; break;
+      case '--status': opts.status = true; break;
       case '--raw': opts.raw = true; break;
       case '--json': opts.json = true; break;
       case '--headful': opts.headful = true; break;
@@ -130,6 +144,11 @@ function run(opts, body) {
   const endpoint = opts.endpoint ?? process.env.AGENT_BROWSER_ENDPOINT;
   if (endpoint) {
     return withSession({ endpoint, stealth: opts.noStealth !== true, timeoutMs: opts.timeoutMs }, body);
+  }
+  // Opt-in, because starting a background process that outlives the command is
+  // a side effect the caller should ask for rather than discover.
+  if (opts.daemon || process.env.AGENT_BROWSER_DAEMON === '1') {
+    return withDaemonSession({ stealth: opts.noStealth !== true, timeoutMs: opts.timeoutMs }, body);
   }
   return withBrowser({
     headless: !opts.headful,
@@ -164,6 +183,19 @@ async function main() {
 
   if (opts.help || !command) { process.stdout.write(USAGE); return 0; }
   if (command === 'mcp') { await startMcpServer(); return 0; }
+  if (command === 'daemon') {
+    if (opts.stop) {
+      process.stdout.write(`${await stopDaemon() ? 'stopped' : 'no daemon running'}\n`);
+      return 0;
+    }
+    if (opts.status) {
+      const status = await daemonStatus();
+      process.stdout.write(`${status ? JSON.stringify(status, null, 2) : 'no daemon running'}\n`);
+      return status ? 0 : 1;
+    }
+    await runDaemon();
+    return 0;
+  }
   if (command === 'tools') {
     // Any harness that can read JSON Schema can be wired up from this, without
     // the project needing to know the framework exists.

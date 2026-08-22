@@ -512,6 +512,74 @@ await test('WebGL always reports a renderer, hardware or software', async () => 
 
 // ---------------------------------------------------------------- cli + mcp
 
+console.log('\nshared-browser daemon');
+
+// Every CLI call is its own process, so without a daemon ten concurrent calls
+// mean ten cold Chrome launches. These assert the guarantees that make sharing
+// one safe: exactly one daemon, real isolation, and nothing left running.
+await test('daemon serves one browser to many clients, then stops', async () => {
+  const socket = join(mkdtempSync(join(tmpdir(), 'ab-daemon-')), 'd.sock');
+  const env = { ...process.env, AGENT_BROWSER_DAEMON_SOCKET: socket, AGENT_BROWSER_DAEMON_IDLE_MS: '60000' };
+  const daemon = spawn(process.execPath, [CLI, 'daemon'], { env, stdio: 'ignore', detached: false });
+  try {
+    const { acquire, daemonStatus, stopDaemon } = await import(`../src/daemon.mjs?d=${socket}`);
+    process.env.AGENT_BROWSER_DAEMON_SOCKET = socket;
+
+    let up = null;
+    for (let i = 0; i < 60 && !up; i += 1) {
+      await new Promise((r) => setTimeout(r, 250));
+      up = await daemonStatus().catch(() => null);
+    }
+    assert(up && up.endpoint, 'daemon should come up and report an endpoint');
+
+    // Two clients must be handed the SAME browser.
+    const a = await acquire({ autostart: false });
+    const b = await acquire({ autostart: false });
+    assert(a.endpoint === b.endpoint, 'both clients must share one browser');
+    const busy = await daemonStatus();
+    assert(busy.clients === 2, `expected 2 clients, got ${busy.clients}`);
+    a.release(); b.release();
+
+    // Releasing is observable, which is what makes the idle timer trustworthy.
+    let idle = null;
+    for (let i = 0; i < 20; i += 1) {
+      await new Promise((r) => setTimeout(r, 150));
+      idle = await daemonStatus();
+      if (idle && idle.clients === 0) break;
+    }
+    assert(idle.clients === 0, `clients should drop back to 0, got ${idle.clients}`);
+
+    assert(await stopDaemon(), 'stop should be acknowledged');
+    await new Promise((r) => setTimeout(r, 800));
+    assert(await daemonStatus() === null, 'daemon should be gone after stop');
+  } finally {
+    delete process.env.AGENT_BROWSER_DAEMON_SOCKET;
+    try { daemon.kill('SIGKILL'); } catch { /* already gone */ }
+    rmSync(dirname(socket), { recursive: true, force: true });
+  }
+});
+
+await test('daemon sessions do not share storage', async () => {
+  const socket = join(mkdtempSync(join(tmpdir(), 'ab-daemon-')), 'd.sock');
+  process.env.AGENT_BROWSER_DAEMON_SOCKET = socket;
+  const { withDaemonSession, stopDaemon } = await import(`../src/daemon.mjs?iso=${socket}`);
+  try {
+    await withDaemonSession({}, async (session) => {
+      await session.navigate('https://example.com');
+      await session.evaluate("localStorage.setItem('daemon-probe','leaked')");
+    });
+    const seen = await withDaemonSession({}, async (session) => {
+      await session.navigate('https://example.com');
+      return session.evaluate("localStorage.getItem('daemon-probe')");
+    });
+    assert(seen === null, `sharing a browser must not share storage, got ${seen}`);
+  } finally {
+    await stopDaemon().catch(() => {});
+    delete process.env.AGENT_BROWSER_DAEMON_SOCKET;
+    rmSync(dirname(socket), { recursive: true, force: true });
+  }
+});
+
 console.log('\nCLI and MCP');
 
 await test('CLI does not truncate large output through a pipe', async () => {

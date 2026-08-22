@@ -279,6 +279,42 @@ await shutdownPool();   // or let it idle out
 For the CLI, each invocation is its own process, so reuse means pointing
 `--endpoint` at a browser you keep alive yourself.
 
+### The daemon: one browser for every CLI call
+
+Each CLI invocation is its own process, so by default each one cold-starts its
+own Chrome — ten concurrent calls means ten browsers. `--daemon` shares one
+resident browser instead, each call still getting its own isolated context:
+
+```bash
+agent-browser markdown https://example.com --daemon
+agent-browser daemon --status
+agent-browser daemon --stop
+```
+
+| | wall clock | peak Chrome processes |
+| --- | --- | --- |
+| 3 sequential lookups, no daemon | 5330 ms | — |
+| 3 sequential lookups, `--daemon` | **3254 ms** | — |
+| 10 concurrent calls, no daemon | 1443 ms | 140 |
+| 10 concurrent calls, `--daemon` | **1144 ms** | **32** |
+
+It is opt-in (`--daemon`, or `AGENT_BROWSER_DAEMON=1`) because starting a
+background process that outlives your command is a side effect worth asking
+for. It starts on demand and exits after five minutes idle
+(`AGENT_BROWSER_DAEMON_IDLE_MS`).
+
+Four failure modes it is built around, each verified by test:
+
+- **Exactly one daemon.** Ten simultaneous first-callers all spawn one; nine
+  lose the race to bind the socket and exit before launching anything. Binding
+  the socket *is* the lock, so there is no lockfile to go stale.
+- **The open socket is the refcount.** A client holds its connection while it
+  works, so a client killed with `SIGKILL` still releases — the kernel closes
+  the socket. A "please release" message would have leaked a reference forever.
+- **Idle exit**, so it does not sit on ~420 MB between conversations.
+- **A `SIGKILL`ed daemon strands nothing**: its profile marker names its pid, so
+  the sweep below reclaims the browser on the next launch.
+
 ### Cleaning up after itself
 
 Every launch writes an owner marker into its temp profile and sweeps for
