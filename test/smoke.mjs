@@ -525,12 +525,16 @@ await test('daemon serves one browser to many clients, then stops', async () => 
     const { acquire, daemonStatus, stopDaemon } = await import(`../src/daemon.mjs?d=${socket}`);
     process.env.AGENT_BROWSER_DAEMON_SOCKET = socket;
 
+    // The daemon binds its socket BEFORE launching Chrome, so it answers
+    // `status` while still starting — with endpoint null and starting true.
+    // Wait for the browser, not merely for something to answer the socket.
     let up = null;
-    for (let i = 0; i < 60 && !up; i += 1) {
+    for (let i = 0; i < 80 && !up?.endpoint; i += 1) {
       await new Promise((r) => setTimeout(r, 250));
       up = await daemonStatus().catch(() => null);
     }
-    assert(up && up.endpoint, 'daemon should come up and report an endpoint');
+    assert(up?.endpoint, `daemon should come up and report an endpoint, last status: ${JSON.stringify(up)}`);
+    assert(up.starting === false, 'and should no longer report itself as starting');
 
     // Two clients must be handed the SAME browser.
     const a = await acquire({ autostart: false });
