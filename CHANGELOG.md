@@ -96,6 +96,13 @@ names, new optional arguments. Only the library API changed shape.
   any harness that reads JSON Schema can drive the browser. Each tool carries
   both an in-process `run(session, args)` and an out-of-process `cli(args)`.
 
+- Tool descriptions and CLI help now route small questions to `browser_evaluate`
+  / `eval` instead of a whole-page render. Found by benchmarking two agents on
+  the same three questions: the agent-browser one pulled 77 kB of Markdown to
+  answer three one-line questions that targeted `eval` answers in 235 bytes
+  total. Nothing in either surface said so — `markdown` read as the default for
+  everything. Costs ~96 tokens of extra schema per request, which one avoided
+  page pull repays many times over.
 - `npm run charts` (`scripts/make-charts.mjs`) regenerates the README charts.
   They were static PNGs with no generator, so they silently went stale when
   extraction changed. The script measures live and then draws the images with

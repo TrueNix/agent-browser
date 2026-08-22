@@ -55,10 +55,11 @@ export const TOOLS = [
   {
     name: 'browser_markdown',
     description:
-      'Render a URL in a real local browser and return it as Markdown. Best default for reading a '
-      + 'web page: roughly 8x fewer tokens than raw HTML while keeping headings, links, lists, code '
-      + 'and tables. Runs on this machine — no remote service, no quota — with full '
-      + 'WebGL/video/ServiceWorker support, and is not trivially flagged as automation.',
+      'Read a WHOLE web page as Markdown, rendered in a real browser so JavaScript runs. The right '
+      + 'default when you need to read, summarise or search the page. If you only need one specific '
+      + 'fact — a count, a heading, the top N items, an embedded JSON blob — use browser_evaluate '
+      + 'instead: it returns tens of bytes where this returns tens of kilobytes. Set links:"text" '
+      + 'when you will not be navigating; URLs are 36-81% of the output on a link-dense page.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -144,8 +145,11 @@ export const TOOLS = [
   {
     name: 'browser_evaluate',
     description:
-      'Render a URL then evaluate a JavaScript expression in the page and return its value. '
-      + 'Use for precise extraction (querySelector, counts, embedded JSON).',
+      'Render a URL, evaluate a JavaScript expression in the page, and return ONLY that value. The '
+      + 'cheapest way to answer a specific question about a page — prefer it over browser_markdown '
+      + 'whenever the answer is small. Measured: three targeted questions across three heavy pages '
+      + 'cost 235 bytes this way versus 77 kB of rendered Markdown. Good for querySelector, counts, '
+      + 'the first N items, text near a keyword, and embedded JSON.',
     inputSchema: {
       type: 'object',
       properties: {

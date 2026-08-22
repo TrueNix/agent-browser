@@ -18,14 +18,14 @@ Usage:
   agent-browser <command> [options]
 
 Commands:
-  markdown <url>          Extract the page as Markdown (main content by default)
+  markdown <url>          Extract the whole page as Markdown (main content by default)
   text <url>              Visible text only
   html <url>              Full serialized DOM after JavaScript runs
   links <url>             Every anchor as JSON
   screenshot <url>        PNG/JPEG screenshot (-o file, default screenshot.png)
   pdf <url>               Render to PDF (-o file, default page.pdf)
   a11y <url>              Accessibility tree (filtered, agent-friendly)
-  eval <url> <expr>       Evaluate a JS expression in the page
+  eval <url> <expr>       Evaluate a JS expression, return only its value (cheapest)
   probe                   Report browser, GPU and capability flags
   mcp                     Run as an MCP server over stdio
   tools [--format f]      Print the tool schemas (mcp | openai | anthropic)
@@ -57,6 +57,12 @@ Options:
 Note on --viewport: a device-metrics override is NOT applied by default,
 because the launch geometry is already internally consistent and the common
 1280x720 default is a known automation fingerprint. Set it only if you need it.
+
+Picking a command: use "markdown" to READ a page, but "eval" when you only need
+one fact out of it — eval returns just the value. Three targeted questions across
+three heavy pages cost 235 bytes via eval versus 77 kB of Markdown. Example:
+  agent-browser eval https://github.com/trending \
+    "JSON.stringify(Array.from(document.querySelectorAll('article h2 a')).slice(0,3).map(a=>a.textContent.trim()))"
 
 Note on --links: URLs are 36% of the characters on a Wikipedia article and 81%
 on github.com/trending. "--links text" keeps the anchor text and drops the URL,

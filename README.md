@@ -203,19 +203,38 @@ Env overrides: `AGENT_BROWSER_BIN` (Chrome binary), `AGENT_BROWSER_ENDPOINT` (at
 ```
 agent-browser <command> [options]
 
-  markdown <url>     Extract the page as Markdown (main content by default)
+  markdown <url>     Extract the whole page as Markdown (main content by default)
   text <url>         Visible text only
   html <url>         Full serialized DOM after JavaScript runs
   links <url>        Every anchor as JSON
   screenshot <url>   PNG/JPEG   (-o file, --full)
   pdf <url>          PDF        (-o file)
   a11y <url>         Filtered accessibility tree
-  eval <url> <expr>  Evaluate JS in the page
+  eval <url> <expr>  Evaluate JS, return only its value (cheapest)
   probe              Browser, GPU and capability report
   mcp                Run as an MCP server on stdio
+  tools              Print tool schemas (--format mcp|openai|anthropic)
 ```
 
-Options: `--headful`, `--no-stealth`, `--block-images`, `--gpu`/`--no-gpu`, `--width`, `--height`, `--viewport WxH`, `--main`, `--raw`, `--full`, `--endpoint <ws>`, `--timeout`, `--json`, `-o`.
+Options: `--headful`, `--no-stealth`, `--block-images`, `--gpu`/`--no-gpu`, `--width`, `--height`, `--viewport WxH`, `--main`, `--raw`, `--links`, `--max-rows`, `--limit`, `--wait`, `--settle`, `--full`, `--endpoint <ws>`, `--timeout`, `--json`, `-o`.
+
+### `markdown` to read, `eval` to look something up
+
+The most expensive mistake an agent makes with this tool is rendering a whole
+page to answer a one-line question. Three targeted questions across three heavy
+pages cost **235 bytes** via `eval`, against **77 kB** of Markdown:
+
+```bash
+agent-browser eval https://github.com/trending \
+  "JSON.stringify(Array.from(document.querySelectorAll('article h2 a')).slice(0,3).map(a=>a.textContent.trim()))"
+# ["openai/codex","mattpocock/skills","affaan-m/ECC"]   -> 55 bytes
+```
+
+Use `markdown` when you actually need to read, summarise or search the page.
+
+Each invocation launches its own browser (~1.4 s). For several lookups in a row,
+keep one browser alive and point `--endpoint` at it — the same three questions
+take 5.9 s across three cold starts, 3.2 s against a warm one.
 
 `--endpoint` attaches to an already-running browser instead of launching one — useful for reusing a single long-lived browser across many calls.
 
