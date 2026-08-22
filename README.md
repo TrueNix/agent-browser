@@ -27,10 +27,14 @@ And a browser that announces itself as automation gets blocked, degraded, or ser
 | --- | --- | --- | --- | --- |
 | `en.wikipedia.org/wiki/WebAssembly` | 927 kB | **120 kB** | 55 kB | 7.7× / 16.8× |
 | `react.dev` | 273 kB | **11 kB** | 8.7 kB | 23.8× / 31.4× |
-| `nextjs.org` | 342 kB | **10 kB** | 7.3 kB | 33.9× / 47.0× |
+| `nextjs.org` | 335 kB | **10 kB** | 7.3 kB | 33.2× / 45.9× |
 | `github.com/trending` | 648 kB | **69 kB** | 13 kB | 9.3× / 48.9× |
 | `apple.com` | 360 kB | **4.6 kB** | 3.5 kB | 78.6× / 102.8× |
-| `news.ycombinator.com` | 35 kB | **10 kB** | 3.1 kB | 3.4× / 11.1× |
+| `news.ycombinator.com` | 35 kB | **10 kB** | 3.2 kB | 3.4× / 11.0× |
+
+Regenerate both charts and this table's underlying measurements with
+`npm run charts` — it measures live, then draws the PNGs using agent-browser
+itself, so the numbers in the images cannot drift from what the code produces.
 
 ### Spending fewer tokens on the same page
 
@@ -51,7 +55,7 @@ agent-browser markdown https://en.wikipedia.org/wiki/Rust --links relative
 ![Heavy-site benchmark](./heavy-benchmark.png)
 
 ![Token cost: Raw HTML vs agent-browser](./token-cost-graph.png)
-*Token cost per YC check (HN + YC Blog, 45.5k → 2.9k tokens, +500 out) — real pricing Aug 2026: Anthropic Sonnet $3/$15, Opus $5/$25, Haiku $1/$5 • OpenAI GPT-4o $2.50/$10*
+*Token cost per YC check (HN + YC Blog read with `--links text`, 51.2k → 1.6k tokens, +500 out) — Aug 2026 list pricing: Anthropic Haiku 4.5 $1/$5, Sonnet 5 $3/$15, Opus 5 $5/$25 • OpenAI GPT-4o $2.50/$10, GPT-4o mini $0.15/$0.60*
 
 ### Pages that render after load
 

@@ -96,13 +96,19 @@ names, new optional arguments. Only the library API changed shape.
   any harness that reads JSON Schema can drive the browser. Each tool carries
   both an in-process `run(session, args)` and an out-of-process `cli(args)`.
 
+- `npm run charts` (`scripts/make-charts.mjs`) regenerates the README charts.
+  They were static PNGs with no generator, so they silently went stale when
+  extraction changed. The script measures live and then draws the images with
+  agent-browser itself — no chart library, nothing added to the package — so the
+  numbers in the images are the numbers the code produced.
+
 ### Note
 
 The README's benchmark numbers moved because the extraction fixes recover
 content that was previously being dropped. Wikipedia went 97 kB → 120 kB and HN
 6.7 kB → 10 kB in the default mode, while gaining 572 and 136 links
-respectively. `--links text` lands well below the old figures on both.
-`heavy-benchmark.png` and `token-cost-graph.png` still show pre-1.1.0 numbers.
+respectively. `--links text` lands well below the old figures on both. Both
+charts have been regenerated.
 
 ## 1.0.2
 

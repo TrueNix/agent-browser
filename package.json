@@ -70,7 +70,8 @@
     "test": "node test/smoke.mjs",
     "test:bot": "node test/bot-detection.mjs",
     "mcp": "node src/cli.mjs mcp",
-    "probe": "node src/cli.mjs probe"
+    "probe": "node src/cli.mjs probe",
+    "charts": "node scripts/make-charts.mjs"
   },
   "dependencies": {}
 }
