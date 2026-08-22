@@ -51,6 +51,24 @@ await test('derives a clean UA from a --version line', () => {
     'Client Hints brands must match the binary version');
 });
 
+// The fallback UA used to be hardcoded to "X11; Linux x86_64". On a Mac that
+// contradicts navigator.platform ("MacIntel") — a page contradicting itself,
+// which is worse than not spoofing at all.
+await test('the fallback UA describes the host, not always Linux', () => {
+  const mac = deriveIdentity('Google Chrome 151.0.7922.169', { platform: 'darwin', arch: 'arm64' });
+  assert(/Macintosh/.test(mac.userAgent), `expected a macOS token, got ${mac.userAgent}`);
+  assert(mac.metadata.platform === 'macOS', `expected the macOS client hint, got ${mac.metadata.platform}`);
+  assert(mac.metadata.architecture === 'arm', `Apple Silicon is arm, got ${mac.metadata.architecture}`);
+
+  const win = deriveIdentity('Google Chrome 151.0.7922.169', { platform: 'win32', arch: 'x64' });
+  assert(/Windows NT/.test(win.userAgent), `expected a Windows token, got ${win.userAgent}`);
+  assert(win.metadata.platform === 'Windows', `expected the Windows client hint, got ${win.metadata.platform}`);
+
+  const linux = deriveIdentity('Google Chrome 151.0.7922.169', { platform: 'linux', arch: 'x64' });
+  assert(/X11; Linux x86_64/.test(linux.userAgent), `expected a Linux token, got ${linux.userAgent}`);
+  assert(linux.metadata.architecture === 'x86', 'x64 maps to the x86 client hint');
+});
+
 await test('strips Headless from a real UA string', () => {
   const id = deriveIdentity('Mozilla/5.0 (X11; Linux x86_64) HeadlessChrome/151.0.0.0 Safari/537.36');
   assert(!/Headless/i.test(id.userAgent), `still headless: ${id.userAgent}`);

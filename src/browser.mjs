@@ -29,13 +29,28 @@
  *     navigator.userAgent looks clean. We override both together.
  */
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname, delimiter, isAbsolute } from 'node:path';
 import { request as httpRequest } from 'node:http';
+
+/** Chrome's default install locations on Windows, for the roots that exist. */
+function windowsCandidates() {
+  const roots = [
+    process.env.LOCALAPPDATA,
+    process.env.PROGRAMFILES,
+    process.env['PROGRAMFILES(X86)'],
+  ].filter(Boolean);
+  return [
+    ...roots.map((root) => join(root, 'Google', 'Chrome', 'Application', 'chrome.exe')),
+    'chrome.exe',
+    'msedge.exe',
+  ];
+}
 
 const CANDIDATES = [
   process.env.AGENT_BROWSER_BIN,
+  ...(process.platform === 'win32' ? windowsCandidates() : []),
   'google-chrome-stable',
   'google-chrome',
   'chromium',
@@ -47,12 +62,17 @@ const CANDIDATES = [
 /** Locate a usable Chrome/Chromium binary. */
 export function findBrowser() {
   for (const candidate of CANDIDATES) {
-    if (candidate.includes('/')) {
+    // A path — either separator, or a drive-letter root — is checked directly;
+    // anything else is a bare command resolved through PATH. Testing only for
+    // '/' misread `C:\...\chrome.exe` as a bare command, so AGENT_BROWSER_BIN,
+    // the documented escape hatch, was itself broken on Windows.
+    if (candidate.includes('/') || candidate.includes('\\') || isAbsolute(candidate)) {
       if (existsSync(candidate)) return candidate;
       continue;
     }
-    // Bare command: resolve through PATH without spawning a shell.
-    for (const dir of (process.env.PATH || '').split(':')) {
+    // Bare command: resolve through PATH without spawning a shell. The
+    // separator is ';' on Windows, so it must come from path.delimiter.
+    for (const dir of (process.env.PATH || '').split(delimiter)) {
       if (dir && existsSync(join(dir, candidate))) return join(dir, candidate);
     }
   }
@@ -82,6 +102,10 @@ function baseFlags({ width, height, lang, gpu, headless, profileDir, blockImages
     `--lang=${lang}`,
     `--window-size=${width},${height}`,
     // Screen must move WITH the window or the pair becomes impossible.
+    // Ozone is the Linux path; on macOS/Windows the flag is ignored, and the
+    // pair stays consistent only because --headless=new synthesizes a screen
+    // from the window size. A headful run there can still show
+    // outerWidth > screen.width on a display smaller than --width.
     `--ozone-override-screen-size=${width},${height}`,
     // Memory / noise reduction. None of these are automation tells.
     '--disable-dev-shm-usage',
@@ -155,9 +179,46 @@ function getJson(port, path) {
  */
 export function browserVersion(binary) {
   try {
-    return execFileSync(binary, ['--version'], { encoding: 'utf8', timeout: 10000 }).trim();
-  } catch { return ''; }
+    const reported = execFileSync(binary, ['--version'], { encoding: 'utf8', timeout: 10000 }).trim();
+    if (reported) return reported;
+  } catch { /* fall through to the on-disk answer */ }
+
+  // Windows chrome.exe writes nothing to stdout for --version. The installed
+  // version is the versioned directory sitting beside the binary
+  // (...\Application\151.0.7922.169\), which is just as authoritative. Without
+  // it the UA falls back to a hardcoded major that drifts out of sync with the
+  // binary — precisely the tell rule 4 above exists to avoid.
+  try {
+    const versions = readdirSync(dirname(binary))
+      .filter((entry) => /^\d+\.\d+\.\d+\.\d+$/.test(entry))
+      .sort(compareVersions);
+    if (versions.length > 0) return versions[versions.length - 1];
+  } catch { /* best effort */ }
+  return '';
 }
+
+/** Numeric compare, because lexicographic sorts 99.x above 151.x. */
+function compareVersions(a, b) {
+  const left = a.split('.').map(Number);
+  const right = b.split('.').map(Number);
+  for (let i = 0; i < 4; i += 1) if (left[i] !== right[i]) return left[i] - right[i];
+  return 0;
+}
+
+/**
+ * Chrome's UA platform token, frozen per-OS exactly as the browser freezes it —
+ * Apple Silicon really does report "Intel Mac OS X 10_15_7".
+ *
+ * Keyed off the HOST rather than hardcoded to Linux. The fallback UA has to
+ * describe the machine the browser is actually running on: an "X11; Linux
+ * x86_64" token on a Mac contradicts navigator.platform ("MacIntel") and the
+ * real font and screen surfaces, which is a page contradicting itself — rule 1.
+ */
+const UA_PLATFORM_TOKEN = {
+  darwin: 'Macintosh; Intel Mac OS X 10_15_7',
+  win32: 'Windows NT 10.0; Win64; x64',
+  linux: 'X11; Linux x86_64',
+};
 
 /**
  * Build a clean User-Agent plus matching Client Hints metadata from the
@@ -165,16 +226,20 @@ export function browserVersion(binary) {
  *
  * Accepts either a full UA string or a `--version` line.
  * @param {string} raw
+ * @param {{platform?: string, arch?: string}} [host] defaults to this machine
  */
-export function deriveIdentity(raw) {
+export function deriveIdentity(raw, host = {}) {
+  const hostPlatform = host.platform ?? process.platform;
+  const hostArch = host.arch ?? process.arch;
   const version = (raw.match(/(\d+)\.(\d+)\.(\d+)\.(\d+)/) || [])[0];
   const isUa = /Mozilla\//.test(raw);
   const major = version ? version.split('.')[0] : '131';
   const full = version || `${major}.0.0.0`;
+  const token = UA_PLATFORM_TOKEN[hostPlatform] ?? UA_PLATFORM_TOKEN.linux;
   // Chrome's reduced UA pins the last three components to 0.
   const userAgent = isUa
     ? raw.replace(/Headless/g, '')
-    : `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
+    : `Mozilla/5.0 (${token}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
   const platform = /Windows/.test(userAgent) ? 'Windows'
     : /Macintosh|Mac OS/.test(userAgent) ? 'macOS'
     : 'Linux';
@@ -193,7 +258,10 @@ export function deriveIdentity(raw) {
       fullVersion: full,
       platform,
       platformVersion: platform === 'Linux' ? '6.1.0' : '15.0.0',
-      architecture: 'x86',
+      // Sec-CH-UA-Arch must describe the real CPU. Claiming x86 on an arm64
+      // host (Apple Silicon, an arm VPS) disagrees with everything a WASM or
+      // WebGL probe can observe directly.
+      architecture: /^(arm|aarch)/.test(hostArch) ? 'arm' : 'x86',
       model: '',
       mobile: false,
       bitness: '64',
