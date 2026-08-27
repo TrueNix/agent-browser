@@ -32,10 +32,10 @@ response. Reductions compare page-input tokens only.
 | --- | ---: | ---: | ---: | ---: |
 | `en.wikipedia.org/wiki/WebAssembly` | 861 kB / 282k tok | **82.6 kB / 21.9k tok** | 48.0 kB / 12.2k tok | 12.87× / 23.14× |
 | `react.dev` | 273 kB / 108k tok | **11.3 kB / 3.1k tok** | 8.6 kB / 1.9k tok | 34.73× / 57.23× |
-| `nextjs.org` | 344 kB / 127k tok | **5.3 kB / 1.2k tok** | 4.2 kB / 0.9k tok | 102.08× / 133.77× |
-| `github.com/trending` | 666 kB / 218k tok | **7.7 kB / 2.2k tok** | 4.2 kB / 1.1k tok | 100.86× / 200.25× |
-| `apple.com` | 362 kB / 143k tok | **4.1 kB / 1.2k tok** | 3.1 kB / 0.9k tok | 123.77× / 165.55× |
-| `news.ycombinator.com` | 34.7 kB / 11.7k tok | **10.2 kB / 3.4k tok** | 3.1 kB / 1.1k tok | 3.46× / 11× |
+| `nextjs.org` | 337 kB / 124k tok | **5.3 kB / 1.2k tok** | 4.2 kB / 0.9k tok | 100× / 131.05× |
+| `github.com/trending` | 666 kB / 218k tok | **7.7 kB / 2.2k tok** | 4.2 kB / 1.1k tok | 100.96× / 200.63× |
+| `apple.com` | 362 kB / 143k tok | **4.1 kB / 1.1k tok** | 3.1 kB / 0.9k tok | 124.4× / 166.69× |
+| `news.ycombinator.com` | 34.5 kB / 11.7k tok | **10.3 kB / 3.4k tok** | 3.2 kB / 1.1k tok | 3.42× / 10.86× |
 <!-- benchmark-table:end -->
 
 From a source checkout, regenerate both charts and this table's underlying

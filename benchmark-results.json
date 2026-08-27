@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-27T14:38:15.103Z",
-  "measurementStartedAt": "2026-08-27T14:38:04.430Z",
+  "generatedAt": "2026-08-27T15:13:12.563Z",
+  "measurementStartedAt": "2026-08-27T15:13:02.359Z",
   "tokenizer": {
     "encoding": "o200k_base",
     "implementation": "gpt-tokenizer",
@@ -24,8 +24,8 @@
   "source": {
     "repository": "https://github.com/TrueNix/agent-browser.git",
     "branch": "main",
-    "commit": "75b90f264af0db5e9937fa9bec3bfa9727d00b55",
-    "workingTreeDirtyAtGeneration": true
+    "commit": "4313cee13a19f934c9f1c1fb0f3916e06bbe5122",
+    "workingTreeDirtyAtGeneration": false
   },
   "environment": {
     "node": "v22.23.1",
@@ -50,7 +50,7 @@
       "finalUrl": "https://en.wikipedia.org/wiki/WebAssembly",
       "title": "WebAssembly - Wikipedia",
       "httpStatus": 200,
-      "capturedAt": "2026-08-27T14:38:05.671Z",
+      "capturedAt": "2026-08-27T15:13:03.579Z",
       "payloads": {
         "rawDom": {
           "bytes": 861462,
@@ -75,7 +75,7 @@
       "finalUrl": "https://react.dev/",
       "title": "React",
       "httpStatus": 200,
-      "capturedAt": "2026-08-27T14:38:06.355Z",
+      "capturedAt": "2026-08-27T15:13:04.353Z",
       "payloads": {
         "rawDom": {
           "bytes": 272535,
@@ -100,11 +100,11 @@
       "finalUrl": "https://nextjs.org/",
       "title": "Next.js by Vercel - The React Framework",
       "httpStatus": 200,
-      "capturedAt": "2026-08-27T14:38:07.676Z",
+      "capturedAt": "2026-08-27T15:13:05.410Z",
       "payloads": {
         "rawDom": {
-          "bytes": 343700,
-          "tokens": 126679
+          "bytes": 337192,
+          "tokens": 124103
         },
         "defaultMarkdown": {
           "bytes": 5268,
@@ -125,19 +125,19 @@
       "finalUrl": "https://github.com/trending",
       "title": "Trending repositories on GitHub today · GitHub",
       "httpStatus": 200,
-      "capturedAt": "2026-08-27T14:38:09.902Z",
+      "capturedAt": "2026-08-27T15:13:07.591Z",
       "payloads": {
         "rawDom": {
-          "bytes": 665866,
-          "tokens": 218471
+          "bytes": 666001,
+          "tokens": 218486
         },
         "defaultMarkdown": {
-          "bytes": 7692,
-          "tokens": 2166
+          "bytes": 7687,
+          "tokens": 2164
         },
         "linksText": {
-          "bytes": 4193,
-          "tokens": 1091
+          "bytes": 4188,
+          "tokens": 1089
         }
       }
     },
@@ -150,19 +150,19 @@
       "finalUrl": "https://www.apple.com/",
       "title": "Apple",
       "httpStatus": 200,
-      "capturedAt": "2026-08-27T14:38:10.914Z",
+      "capturedAt": "2026-08-27T15:13:08.439Z",
       "payloads": {
         "rawDom": {
-          "bytes": 361788,
-          "tokens": 142704
+          "bytes": 361724,
+          "tokens": 142683
         },
         "defaultMarkdown": {
-          "bytes": 4103,
-          "tokens": 1153
+          "bytes": 4105,
+          "tokens": 1147
         },
         "linksText": {
-          "bytes": 3138,
-          "tokens": 862
+          "bytes": 3140,
+          "tokens": 856
         }
       }
     },
@@ -175,19 +175,19 @@
       "finalUrl": "https://news.ycombinator.com/",
       "title": "Hacker News",
       "httpStatus": 200,
-      "capturedAt": "2026-08-27T14:38:11.983Z",
+      "capturedAt": "2026-08-27T15:13:09.505Z",
       "payloads": {
         "rawDom": {
-          "bytes": 34671,
-          "tokens": 11749
+          "bytes": 34492,
+          "tokens": 11712
         },
         "defaultMarkdown": {
-          "bytes": 10189,
-          "tokens": 3395
+          "bytes": 10253,
+          "tokens": 3427
         },
         "linksText": {
-          "bytes": 3149,
-          "tokens": 1068
+          "bytes": 3157,
+          "tokens": 1078
         }
       }
     },
@@ -200,11 +200,11 @@
       "finalUrl": "https://www.ycombinator.com/blog",
       "title": "Y Combinator",
       "httpStatus": 200,
-      "capturedAt": "2026-08-27T14:38:15.092Z",
+      "capturedAt": "2026-08-27T15:13:12.553Z",
       "payloads": {
         "rawDom": {
-          "bytes": 170656,
-          "tokens": 52417
+          "bytes": 170561,
+          "tokens": 52400
         },
         "defaultMarkdown": {
           "bytes": 5429,
@@ -228,21 +228,21 @@
       "aggregation": "sum of independently tokenized page payloads",
       "payloads": {
         "rawDom": {
-          "bytes": 205327,
-          "tokens": 64166
+          "bytes": 205053,
+          "tokens": 64112
         },
         "defaultMarkdown": {
-          "bytes": 15618,
-          "tokens": 4809
+          "bytes": 15682,
+          "tokens": 4841
         },
         "linksText": {
-          "bytes": 6185,
-          "tokens": 1755
+          "bytes": 6193,
+          "tokens": 1765
         }
       },
       "tokenReduction": {
-        "defaultMarkdown": 13.34,
-        "linksText": 36.56
+        "defaultMarkdown": 13.24,
+        "linksText": 36.32
       }
     }
   ],
