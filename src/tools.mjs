@@ -39,6 +39,14 @@ const waitUntil = {
     + 'arrives after the load event (client-rendered apps) and the result looks empty.',
 };
 
+const evaluationWorld = {
+  type: 'string',
+  enum: ['isolated', 'main'],
+  description:
+    'JavaScript world to use. "isolated" is the default and avoids page-installed detector hooks. '
+    + 'Use "main" only when the expression needs page-defined globals or patched prototypes.',
+};
+
 /** Nav flags shared by every out-of-process tool form. */
 const navFlags = (args) => (args.waitUntil ? ['--wait', args.waitUntil] : []);
 
@@ -155,12 +163,17 @@ export const TOOLS = [
       properties: {
         url,
         expression: { type: 'string', description: 'JS expression evaluated in page context; its value is returned.' },
+        world: evaluationWorld,
         waitUntil,
       },
       required: ['url', 'expression'],
     },
-    run: (session, args) => session.evaluate(args.expression),
-    cli: (args) => ['eval', args.url, ...navFlags(args), args.expression],
+    run: (session, args) => session.evaluate(args.expression, { world: args.world || 'isolated' }),
+    cli: (args) => [
+      'eval', args.url, ...navFlags(args),
+      ...(args.world ? ['--world', args.world] : []),
+      args.expression,
+    ],
   },
   {
     name: 'browser_accessibility_tree',

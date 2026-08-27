@@ -12,6 +12,7 @@ import { MiniWebSocket } from './ws.mjs';
 import { rootPicker, htmlToMarkdown } from './extract.mjs';
 
 const DEFAULT_TIMEOUT_MS = 45000;
+const ISOLATED_WORLD_NAME = 'agent-browser';
 
 /** navigate()'s waitUntil vocabulary, mapped to CDP lifecycle event names. */
 const LIFECYCLE = {
@@ -343,8 +344,45 @@ export class BrowserSession {
     try { return JSON.parse(value); } catch { return { title: '', url: '', readyState: 'unknown', bodyLength: 0 }; }
   }
 
-  async evaluate(expression, { timeoutMs = DEFAULT_TIMEOUT_MS, awaitPromise = true } = {}) {
-    const res = await this.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise }, { timeoutMs });
+  /**
+   * Evaluate in an isolated JavaScript world by default.
+   *
+   * The isolated world shares the DOM with the page, but not page-installed
+   * globals or prototype hooks. That keeps ordinary extraction from touching
+   * the main-world hooks bot detectors use to notice CDP evaluation. Callers
+   * that intentionally need page-defined JavaScript can opt in with
+   * `{ world: 'main' }`.
+   *
+   * @param {string} expression
+   * @param {{timeoutMs?: number, awaitPromise?: boolean,
+   *          world?: 'isolated'|'main'}} [options]
+   */
+  async evaluate(expression, {
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    awaitPromise = true,
+    world = 'isolated',
+  } = {}) {
+    if (world !== 'isolated' && world !== 'main') {
+      throw new BrowserError(`unknown evaluation world: ${world} (expected isolated, main)`);
+    }
+
+    const params = { expression, returnByValue: true, awaitPromise };
+    if (world === 'isolated') {
+      const { frameTree } = await this.send('Page.getFrameTree', {}, { timeoutMs });
+      const frameId = frameTree?.frame?.id;
+      if (!frameId) throw new BrowserError('cannot create an isolated world without a main frame');
+      const { executionContextId } = await this.send('Page.createIsolatedWorld', {
+        frameId,
+        worldName: ISOLATED_WORLD_NAME,
+        grantUniveralAccess: false,
+      }, { timeoutMs });
+      if (executionContextId === undefined) {
+        throw new BrowserError('Page.createIsolatedWorld returned no execution context');
+      }
+      params.contextId = executionContextId;
+    }
+
+    const res = await this.send('Runtime.evaluate', params, { timeoutMs });
     if (res.exceptionDetails) {
       const text = res.exceptionDetails.exception?.description ?? res.exceptionDetails.text ?? 'evaluation threw';
       throw new BrowserError(`page evaluation failed: ${text}`, res.exceptionDetails);

@@ -49,6 +49,7 @@ Options:
       --links <mode>      inline (default) | relative | text  — see note below
       --max-rows <n>      Table row cap for markdown (default 60, 0 = no cap)
       --limit <n>         Cap for links/a11y results (0 = no cap)
+      --world <mode>      isolated (default) | main, for eval — see note below
       --full              Full-page screenshot
       --daemon            Use (and start) the shared-browser daemon — see below
       --endpoint <ws>     Attach to an ALREADY RUNNING browser instead of launching
@@ -88,6 +89,10 @@ typically 2-3x faster than polling. A client-rendered app whose content arrives
 after load needs "--wait idle", which waits for the network to go quiet instead
 of guessing at a fixed delay.
 
+Note on --world: eval runs in an isolated JavaScript world by default. It shares
+the DOM but does not touch page-installed globals or prototype hooks. Use
+"--world main" only when an expression intentionally needs page-defined code.
+
 Environment:
   AGENT_BROWSER_BIN       Path to a Chrome/Chromium binary
   AGENT_BROWSER_ENDPOINT  Attach to this CDP endpoint instead of launching
@@ -95,6 +100,7 @@ Environment:
 
 const LINK_STYLES = ['inline', 'relative', 'text'];
 const WAIT_MODES = ['domcontentloaded', 'load', 'idle'];
+const EVALUATION_WORLDS = ['isolated', 'main'];
 /** Options fixed at browser launch, so the daemon's browser cannot honour them. */
 const LAUNCH_LEVEL = ['headful', 'blockImages', 'width', 'height', 'gpu'];
 const TOOL_FORMATS = ['mcp', 'openai', 'anthropic'];
@@ -114,6 +120,7 @@ function parseArgs(argv) {
       case '--links': opts.links = take(); break;
       case '--max-rows': opts.maxRows = Number(take()); break;
       case '--limit': opts.limit = Number(take()); break;
+      case '--world': opts.world = take(); break;
       case '--format': opts.format = take(); break;
       case '--daemon': opts.daemon = true; break;
       case '--stop': opts.stop = true; break;
@@ -229,6 +236,9 @@ async function main() {
   if (opts.waitUntil !== undefined && !WAIT_MODES.includes(opts.waitUntil)) {
     throw new Error(`unknown --wait mode: ${opts.waitUntil} (expected ${WAIT_MODES.join(', ')})`);
   }
+  if (opts.world !== undefined && !EVALUATION_WORLDS.includes(opts.world)) {
+    throw new Error(`unknown --world mode: ${opts.world} (expected ${EVALUATION_WORLDS.join(', ')})`);
+  }
   if (command === 'install') {
     const profile = opts.profile || rest[0] || 'web';
     const dryRun = Boolean(opts.dryRun);
@@ -293,7 +303,7 @@ async function main() {
       case 'eval': {
         const expression = rest.slice(1).join(' ');
         if (!expression) throw new Error('eval requires an expression');
-        emit(await session.evaluate(expression));
+        emit(await session.evaluate(expression, { world: opts.world }));
         break;
       }
       case 'screenshot': {

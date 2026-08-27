@@ -213,8 +213,13 @@ await test('the catalogue renders for MCP, OpenAI and Anthropic', () => {
 // The DSH plugin shells out, so a URL or JS expression must never reach sh raw.
 await test('CLI arguments survive shell quoting', () => {
   assert(quote("a'b") === "'a'\\''b'", `bad escape: ${quote("a'b")}`);
-  const argv = findTool('browser_evaluate').cli({ url: 'https://x.test', expression: "document.title+'!'" });
+  const evaluate = findTool('browser_evaluate');
+  const argv = evaluate.cli({ url: 'https://x.test', expression: "document.title+'!'" });
   assert(argv[0] === 'eval' && argv[2] === "document.title+'!'", 'expression must pass through intact');
+  assert(evaluate.inputSchema.properties.world.enum.join(',') === 'isolated,main',
+    'the tool schema must expose the two evaluation worlds');
+  const main = evaluate.cli({ url: 'https://x.test', expression: 'window.app', world: 'main' });
+  assert(main.includes('--world') && main.includes('main'), 'the CLI form must preserve an explicit main world');
 });
 
 if (process.env.AGENT_BROWSER_SKIP_NETWORK === '1') {
@@ -245,6 +250,49 @@ await test('does not announce itself as automation', async () => {
     assert(v.headless === false, 'UA must not contain Headless');
     assert(v.screen === v.outer, `window/screen must agree, got ${v.outer} vs ${v.screen}`);
   });
+});
+
+await test('evaluation and extraction avoid main-world hooks unless explicitly opted in', async () => {
+  await withBrowser({}, async (session) => {
+    const copy = 'visible page content '.repeat(20);
+    const html = '<main><h1>Trusted heading</h1><p>' + copy + '</p></main><script>'
+      + 'window.__agentBrowserHookHits=0;'
+      + 'const originalQuery=Document.prototype.querySelector;'
+      + 'Document.prototype.querySelector=function(...args){window.__agentBrowserHookHits+=1;'
+      + 'return Reflect.apply(originalQuery,this,args)};'
+      + '</script>';
+    await session.navigate(`data:text/html,${encodeURIComponent(html)}`);
+
+    const heading = await session.evaluate("document.querySelector('h1').innerText");
+    assert(heading === 'Trusted heading', 'isolated evaluation must still share the page DOM');
+    const markdown = await session.markdown();
+    assert(markdown.includes('Trusted heading'), 'Markdown extraction must still work in the isolated world');
+
+    const evaluate = findTool('browser_evaluate');
+    const viaTool = await evaluate.run(session, { expression: "document.querySelector('h1').innerText" });
+    assert(viaTool === 'Trusted heading', 'browser_evaluate must work in its default isolated world');
+    const untouched = await session.evaluate('window.__agentBrowserHookHits', { world: 'main' });
+    assert(untouched === 0, `isolated reads touched the page hook ${untouched} times`);
+
+    const main = await evaluate.run(session, {
+      expression: "document.querySelector('h1').innerText",
+      world: 'main',
+    });
+    assert(main === 'Trusted heading', 'explicit main-world tool evaluation must return its value');
+    const triggered = await session.evaluate('window.__agentBrowserHookHits', { world: 'main' });
+    assert(triggered === 1, `explicit main-world evaluation should trigger the hook once, got ${triggered}`);
+  });
+});
+
+await test('CLI eval defaults to isolated and can explicitly enter the main world', async () => {
+  const url = `data:text/html,${encodeURIComponent('<script>window.__pageDefined=41</script>')}`;
+  const isolated = await run(process.execPath, [CLI, 'eval', url, 'typeof window.__pageDefined']);
+  assert(isolated.code === 0 && isolated.stdout.trim() === 'undefined',
+    `default CLI eval should be isolated, got: ${isolated.stdout.trim()} ${isolated.stderr.trim()}`);
+  const main = await run(process.execPath,
+    [CLI, 'eval', url, '--world', 'main', 'window.__pageDefined+1']);
+  assert(main.code === 0 && main.stdout.trim() === '42',
+    `--world main should see page globals, got: ${main.stdout.trim()} ${main.stderr.trim()}`);
 });
 
 await test('page and worker agree (no inconsistency tell)', async () => {
@@ -329,6 +377,122 @@ await test('table cells keep their inline markup', async () => {
     const md = await session.markdown({ main: false });
     assert(md.includes('`fetch()`'), `code span lost in a cell: ${md}`);
     assert(md.includes('[MDN](https://mdn.test/f)'), `link lost in a cell: ${md}`);
+  });
+});
+
+await test('Markdown omits hidden and inert prompt injection while preserving display contents', async () => {
+  await withBrowser({}, async (session) => {
+    const html = '<style>.gone{display:none}.unseen{visibility:hidden}.transparent{opacity:0}</style>'
+      + '<main><h1>Trusted <span class=transparent>DO_NOT_FOLLOW_HEADING</span> heading</h1>'
+      + '<p>Visible answer</p>'
+      + '<div style="display:contents">Visible contents text <span>and child</span></div>'
+      + '<p hidden>DO_NOT_FOLLOW_HIDDEN</p>'
+      + '<p class=gone>DO_NOT_FOLLOW_DISPLAY</p>'
+      + '<p class=unseen>DO_NOT_FOLLOW_VISIBILITY</p>'
+      + '<p class=transparent>DO_NOT_FOLLOW_OPACITY</p>'
+      + '<section inert><p>DO_NOT_FOLLOW_INERT</p></section>'
+      + '<p aria-hidden=TrUe>DO_NOT_FOLLOW_ARIA_CASE</p>'
+      + '<a href=/safe>Safe link<span inert>DO_NOT_FOLLOW_LINK</span></a>'
+      + '<pre>safe code<span hidden>DO_NOT_FOLLOW_CODE</span></pre>'
+      + '<ol><li class=gone>DO_NOT_FOLLOW_LIST</li><li>Visible list item</li></ol>'
+      + '<table><tr><th>Safe</th><th class=gone>DO_NOT_FOLLOW_TABLE_HEAD</th></tr>'
+      + '<tr><td>visible cell</td><td class=transparent>DO_NOT_FOLLOW_TABLE_CELL</td></tr></table>'
+      + '</main>';
+    await session.navigate(`data:text/html,${encodeURIComponent(html)}`);
+
+    const native = await session.markdown({ main: false });
+    assert(native.includes('Visible answer') && native.includes('Visible contents text and child')
+      && native.includes('Safe link') && native.includes('safe code')
+      && native.includes('1. Visible list item'),
+      `visible content was lost: ${native}`);
+    assert(!native.includes('DO_NOT_FOLLOW'), `hidden prompt injection leaked through: ${native}`);
+
+  });
+});
+
+await test('visibility-hidden text stays hidden while a visible descendant survives', async () => {
+  await withBrowser({}, async (session) => {
+    const html = '<div style="visibility:hidden">DO_NOT_SHOW_PARENT '
+      + '<span>DO_NOT_SHOW_INHERITED</span>'
+      + '<span style="visibility:visible">Visible override</span></div>';
+    await session.navigate(`data:text/html,${encodeURIComponent(html)}`);
+    const md = await session.markdown({ main: false });
+    assert(md.includes('Visible override'), `visibility override was lost: ${md}`);
+    assert(!md.includes('DO_NOT_SHOW'), `hidden ancestor text leaked: ${md}`);
+  });
+});
+
+await test('a closed details exposes only its summary', async () => {
+  await withBrowser({}, async (session) => {
+    const html = '<details>DO_NOT_SHOW_DIRECT<summary>Visible summary</summary>'
+      + '<p>DO_NOT_SHOW_CLOSED_BODY</p></details>'
+      + '<details open><summary>Open summary</summary><p>Visible open body</p></details>';
+    await session.navigate(`data:text/html,${encodeURIComponent(html)}`);
+    const md = await session.markdown({ main: false });
+    assert(md.includes('Visible summary') && md.includes('Visible open body'),
+      `rendered disclosure text was lost: ${md}`);
+    assert(!md.includes('DO_NOT_SHOW'), `closed disclosure text leaked: ${md}`);
+  });
+});
+
+await test('main-root selection counts only content that extraction can render', async () => {
+  await withBrowser({}, async (session) => {
+    const hidden = 'DO_NOT_SELECT_HIDDEN_MAIN '.repeat(30);
+    const visible = 'visible article content '.repeat(20);
+    const html = '<main><p>Short teaser</p><div style="opacity:0">' + hidden + '</div></main>'
+      + '<article><h1>Chosen article</h1><p>' + visible + '</p></article>';
+    await session.navigate(`data:text/html,${encodeURIComponent(html)}`);
+    const md = await session.markdown();
+    assert(md.includes('Chosen article') && md.includes('visible article content'),
+      `hidden long main displaced the visible article: ${md}`);
+    assert(!md.includes('DO_NOT_SELECT'), `hidden root-selection text leaked: ${md}`);
+
+    const secondMain = 'second main visible content '.repeat(20);
+    const twoMains = '<main><div style="opacity:0">' + hidden + '</div></main>'
+      + '<main><h1>Chosen second main</h1><p>' + secondMain + '</p></main>'
+      + '<p>OUTSIDE_ROOT_SENTINEL</p>';
+    await session.navigate(`data:text/html,${encodeURIComponent(twoMains)}`);
+    const selected = await session.markdown();
+    assert(selected.includes('Chosen second main') && !selected.includes('OUTSIDE_ROOT_SENTINEL'),
+      `the first hidden main blocked a later visible main: ${selected}`);
+  });
+});
+
+await test('hidden table cells retain their column placeholders', async () => {
+  await withBrowser({}, async (session) => {
+    const html = '<table><tr><th>A</th><th style="display:none">DO_NOT_SHOW</th><th>C</th></tr>'
+      + '<tr><td>1</td><td hidden>DO_NOT_SHOW</td><td>3</td></tr></table>';
+    await session.navigate(`data:text/html,${encodeURIComponent(html)}`);
+    const md = await session.markdown({ main: false });
+    assert(md.includes('| A |  | C |'), `hidden header shifted the last column: ${md}`);
+    assert(md.includes('| 1 |  | 3 |'), `hidden data cell shifted the last column: ${md}`);
+    assert(!md.includes('DO_NOT_SHOW'), `hidden table-cell text leaked: ${md}`);
+  });
+});
+
+await test('deep extraction computes visibility once per element', async () => {
+  await withBrowser({}, async (session) => {
+    const depth = 400;
+    await session.navigate('data:text/html,<body></body>');
+    await session.evaluate(`(()=>{
+      document.body.replaceChildren();
+      let parent=document.body;
+      for(let i=0;i<${depth};i+=1){const child=document.createElement('div');parent.appendChild(child);parent=child;}
+      parent.textContent='DEPTH END';
+      const nativeStyle=globalThis.getComputedStyle.bind(globalThis);
+      let calls=0;
+      globalThis.getComputedStyle=(...args)=>{calls+=1;return nativeStyle(...args);};
+      Object.defineProperty(Element.prototype,'checkVisibility',{value:undefined,configurable:true});
+      globalThis.__agentBrowserStyleCalls=()=>calls;
+      return true;
+    })()`);
+    const started = Date.now();
+    const md = await session.markdown({ main: false });
+    const elapsed = Date.now() - started;
+    const calls = await session.evaluate('globalThis.__agentBrowserStyleCalls()');
+    assert(md.includes('DEPTH END'), 'deep content must survive the iterative walk');
+    assert(calls <= depth + 10, `expected O(N) style reads, got ${calls} for depth ${depth}`);
+    assert(elapsed < 2000, `deep extraction timing sanity check took ${elapsed}ms`);
   });
 });
 
