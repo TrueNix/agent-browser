@@ -9,45 +9,69 @@
  * second — the numbers in the image cannot drift from the numbers the code
  * actually produces, because they are the same numbers.
  *
- * It renders with agent-browser itself. No chart library, no headless-browser
- * dependency, nothing added to the package: the tool draws its own benchmarks.
+ * It renders with agent-browser itself. There is no chart or headless-browser
+ * dependency; gpt-tokenizer is dev-only and supplies exact o200k_base counts.
  *
  * Dev tooling — `scripts/` is not in package.json "files", so it never ships.
  */
 import { createServer } from 'node:http';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { encode } from 'gpt-tokenizer/encoding/o200k_base';
 import { withBrowser } from '../src/client.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const HEAVY_SITES = [
-  { url: 'https://en.wikipedia.org/wiki/WebAssembly', label: 'Wikipedia\nWebAssembly' },
-  { url: 'https://react.dev', label: 'react.dev' },
-  { url: 'https://nextjs.org', label: 'nextjs.org' },
-  { url: 'https://github.com/trending', label: 'github.com\n/trending' },
-  { url: 'https://apple.com', label: 'apple.com' },
-];
-
-/** The two pages behind the "one YC check" cost scenario. */
-const COST_PAGES = ['https://news.ycombinator.com', 'https://www.ycombinator.com/blog'];
-
 /**
- * Anthropic rates from the claude-api skill's model table (cached 2026-06-24).
- * OpenAI rates are carried over from the previous chart unverified — they are
- * the comparison column, not a claim this project measured.
+ * The benchmark manifest is the source of truth for the README table, charts,
+ * and benchmark-results.json. Every README table row must live here.
  */
-const MODELS = [
-  { name: 'Haiku 4.5', input: 1.00, output: 5.00 },
-  { name: 'Sonnet 5', input: 3.00, output: 15.00 },
-  { name: 'Opus 5', input: 5.00, output: 25.00 },
-  { name: 'GPT-4o', input: 2.50, output: 10.00 },
-  { name: 'GPT-4o mini', input: 0.15, output: 0.60 },
+const PAGES = [
+  {
+    id: 'wikipedia-webassembly',
+    url: 'https://en.wikipedia.org/wiki/WebAssembly',
+    label: 'Wikipedia\nWebAssembly',
+    readmeLabel: 'en.wikipedia.org/wiki/WebAssembly',
+    readmeTable: true,
+  },
+  { id: 'react', url: 'https://react.dev', label: 'react.dev', readmeLabel: 'react.dev', readmeTable: true },
+  { id: 'nextjs', url: 'https://nextjs.org', label: 'nextjs.org', readmeLabel: 'nextjs.org', readmeTable: true },
+  {
+    id: 'github-trending',
+    url: 'https://github.com/trending',
+    label: 'github.com\n/trending',
+    readmeLabel: 'github.com/trending',
+    readmeTable: true,
+  },
+  { id: 'apple', url: 'https://apple.com', label: 'apple.com', readmeLabel: 'apple.com', readmeTable: true },
+  {
+    id: 'hacker-news',
+    url: 'https://news.ycombinator.com',
+    label: 'Hacker News',
+    readmeLabel: 'news.ycombinator.com',
+    readmeTable: true,
+  },
+  {
+    id: 'yc-blog',
+    url: 'https://www.ycombinator.com/blog',
+    label: 'YC Blog',
+    readmeLabel: 'www.ycombinator.com/blog',
+    readmeTable: false,
+  },
 ];
 
-const OUTPUT_TOKENS = 500;
-const CHARS_PER_TOKEN = 4;
+const TOKENIZER = Object.freeze({
+  encoding: 'o200k_base',
+  implementation: 'gpt-tokenizer',
+  version: '4.0.0',
+  exact: true,
+});
+
+const YC_SCENARIO_IDS = ['hacker-news', 'yc-blog'];
+const README_TABLE_START = '<!-- benchmark-table:start -->';
+const README_TABLE_END = '<!-- benchmark-table:end -->';
 
 const INK = {
   bg: '#131313',
@@ -60,8 +84,67 @@ const INK = {
   pill: '#3a3a3a',
 };
 
-const kb = (chars) => (chars >= 10000 ? `${Math.round(chars / 1000)}k` : `${(chars / 1000).toFixed(1)}k`);
+const formatBytes = (bytes) => (bytes >= 100000
+  ? `${Math.round(bytes / 1000)} kB`
+  : `${(bytes / 1000).toFixed(1)} kB`);
+const formatTokens = (tokens) => (tokens >= 100000
+  ? `${Math.round(tokens / 1000)}k`
+  : `${(tokens / 1000).toFixed(1)}k`);
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+function payload(text) {
+  return {
+    bytes: Buffer.byteLength(text, 'utf8'),
+    tokens: encode(text).length,
+  };
+}
+
+function sumPayload(rows, key) {
+  return rows.reduce((sum, row) => ({
+    bytes: sum.bytes + row.payloads[key].bytes,
+    tokens: sum.tokens + row.payloads[key].tokens,
+  }), { bytes: 0, tokens: 0 });
+}
+
+function commandOutput(command, args) {
+  try {
+    return execFileSync(command, args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function ratio(before, after) {
+  return Number((before / after).toFixed(2));
+}
+
+function markdownMetric(metric) {
+  return `${formatBytes(metric.bytes)} / ${formatTokens(metric.tokens)} tok`;
+}
+
+function updateReadmeTable(rows) {
+  const path = join(root, 'README.md');
+  const readme = readFileSync(path, 'utf8');
+  const start = readme.indexOf(README_TABLE_START);
+  const end = readme.indexOf(README_TABLE_END);
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error('README benchmark table markers are missing or out of order');
+  }
+
+  const lines = [
+    README_TABLE_START,
+    '| site | rendered DOM | Markdown | `--links text` | exact token reduction |',
+    '| --- | ---: | ---: | ---: | ---: |',
+    ...rows.filter((row) => row.readmeTable).map((row) => {
+      const { rawDom, defaultMarkdown, linksText } = row.payloads;
+      return `| \`${row.readmeLabel}\` | ${markdownMetric(rawDom)} | **${markdownMetric(defaultMarkdown)}** | ${markdownMetric(linksText)} | ${ratio(rawDom.tokens, defaultMarkdown.tokens)}× / ${ratio(rawDom.tokens, linksText.tokens)}× |`;
+    }),
+    README_TABLE_END,
+  ];
+
+  const next = `${readme.slice(0, start)}${lines.join('\n')}${readme.slice(end + README_TABLE_END.length)}`;
+  writeFileSync(path, next);
+}
 
 /** A grouped bar chart, drawn as plain SVG in the existing dark house style. */
 function barChart({ width, height, title, subtitle, groups, series, footer, note, format }) {
@@ -119,7 +202,7 @@ function barChart({ width, height, title, subtitle, groups, series, footer, note
       // Normally the pill tucks just under the tallest bar's cap. When every bar
       // in the group is short there is no room under it — the pill would land on
       // the value labels, or on the axis label below them — so it goes above
-      // instead. (GPT-4o mini costs a fraction of a cent and hits this.)
+      // instead.
       const topY = y(Math.max(...group.values));
       const cramped = padTop + plotH - topY < plotH * 0.22;
       const py = cramped ? topY - 30 : topY + 26;
@@ -170,82 +253,169 @@ async function renderPng(svg, { width, height, out }) {
 }
 
 async function main() {
-  console.log('measuring heavy sites...');
-  const heavy = await withBrowser({}, async (session) => {
+  const startedAt = new Date().toISOString();
+  let browser = null;
+
+  console.log('measuring live page-input payloads...');
+  const pages = await withBrowser({}, async (session) => {
     const rows = [];
-    for (const site of HEAVY_SITES) {
-      await session.navigate(site.url, { timeoutMs: 45000 });
-      const html = (await session.html()).length;
-      const md = (await session.markdown()).length;
-      const text = (await session.markdown({ links: 'text' })).length;
-      console.log(`  ${site.url.padEnd(42)} html ${kb(html).padStart(6)}  md ${kb(md).padStart(6)}  text ${kb(text).padStart(6)}`);
-      rows.push({ ...site, html, md, text });
+    for (const page of PAGES) {
+      const state = await session.navigate(page.url, { timeoutMs: 45000, throwOnHttpError: true });
+      if (!browser) {
+        const value = await session.evaluate(`JSON.stringify({
+          userAgent: navigator.userAgent,
+          platform: navigator.platform,
+          language: navigator.language,
+          hardwareConcurrency: navigator.hardwareConcurrency,
+          deviceMemoryGiB: navigator.deviceMemory ?? null
+        })`);
+        browser = JSON.parse(value);
+      }
+
+      const rawDom = await session.html();
+      const defaultMarkdown = await session.markdown();
+      const linksText = await session.markdown({ links: 'text' });
+      const payloads = {
+        rawDom: payload(rawDom),
+        defaultMarkdown: payload(defaultMarkdown),
+        linksText: payload(linksText),
+      };
+      console.log(
+        `  ${page.url.padEnd(42)} DOM ${formatBytes(payloads.rawDom.bytes).padStart(8)}`
+        + ` / ${formatTokens(payloads.rawDom.tokens).padStart(6)} tok`
+        + `  md ${formatBytes(payloads.defaultMarkdown.bytes).padStart(8)}`
+        + ` / ${formatTokens(payloads.defaultMarkdown.tokens).padStart(6)} tok`
+        + `  text ${formatBytes(payloads.linksText.bytes).padStart(8)}`
+        + ` / ${formatTokens(payloads.linksText.tokens).padStart(6)} tok`,
+      );
+      rows.push({
+        ...page,
+        finalUrl: state.url,
+        title: state.title,
+        httpStatus: state.status,
+        capturedAt: new Date().toISOString(),
+        payloads,
+      });
     }
     return rows;
   });
 
-  console.log('measuring the cost scenario...');
-  const cost = await withBrowser({}, async (session) => {
-    let html = 0;
-    let md = 0;
-    for (const url of COST_PAGES) {
-      await session.navigate(url, { timeoutMs: 45000 });
-      html += (await session.html()).length;
-      md += (await session.markdown({ links: 'text' })).length;
-    }
-    return { html, md };
-  });
-  const rawIn = Math.round(cost.html / CHARS_PER_TOKEN);
-  const leanIn = Math.round(cost.md / CHARS_PER_TOKEN);
-  console.log(`  raw ${kb(cost.html)} chars -> ${rawIn} tok | agent-browser ${kb(cost.md)} chars -> ${leanIn} tok`);
+  const scenarioRows = YC_SCENARIO_IDS.map((id) => pages.find((page) => page.id === id));
+  if (scenarioRows.some((row) => !row)) throw new Error('YC scenario references a page missing from the manifest');
+  const scenarioPayloads = {
+    rawDom: sumPayload(scenarioRows, 'rawDom'),
+    defaultMarkdown: sumPayload(scenarioRows, 'defaultMarkdown'),
+    linksText: sumPayload(scenarioRows, 'linksText'),
+  };
+  const scenario = {
+    id: 'hacker-news-and-yc-blog',
+    label: 'Hacker News + YC Blog',
+    pageIds: YC_SCENARIO_IDS,
+    aggregation: 'sum of independently tokenized page payloads',
+    payloads: scenarioPayloads,
+    tokenReduction: {
+      defaultMarkdown: ratio(scenarioPayloads.rawDom.tokens, scenarioPayloads.defaultMarkdown.tokens),
+      linksText: ratio(scenarioPayloads.rawDom.tokens, scenarioPayloads.linksText.tokens),
+    },
+  };
+
+  const results = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    measurementStartedAt: startedAt,
+    tokenizer: TOKENIZER,
+    extraction: {
+      rawDom: 'document.documentElement.outerHTML after page load',
+      defaultMarkdown: { main: true, links: 'inline', maxRows: 60 },
+      linksText: { main: true, links: 'text', maxRows: 60 },
+    },
+    source: {
+      repository: commandOutput('git', ['remote', 'get-url', 'origin']),
+      branch: commandOutput('git', ['branch', '--show-current']),
+      commit: commandOutput('git', ['rev-parse', 'HEAD']),
+      workingTreeDirtyAtGeneration: Boolean(commandOutput('git', ['status', '--porcelain'])),
+    },
+    environment: {
+      node: process.version,
+      platform: process.platform,
+      architecture: process.arch,
+      os: commandOutput('uname', ['-sr']),
+      browser,
+    },
+    pages,
+    scenarios: [scenario],
+    limitations: [
+      'Live pages change over time, so results are a dated snapshot.',
+      'A successful HTTP status is required, but HTTP 200 challenge or experiment pages are still possible.',
+      'Counts cover page-input payloads only, not prompts, tool schemas, retries, caches, or model output.',
+      'Token totals use o200k_base and may differ for models with another tokenizer.',
+    ],
+  };
 
   console.log('rendering...');
+  const readmeRows = pages.filter((page) => page.readmeTable);
   await renderPng(barChart({
     width: 900,
     height: 480,
-    title: 'Heavy sites: Raw HTML vs agent-browser',
-    subtitle: 'Measured live  •  node src/cli.mjs html|markdown <url>  •  wc -c',
+    title: 'Live page payload: Rendered DOM vs agent-browser',
+    subtitle: 'UTF-8 bytes  •  rendered DOM after load  •  extracted Markdown',
     series: [
-      { name: 'Raw HTML', color: INK.red },
+      { name: 'Rendered DOM', color: INK.red },
       { name: 'agent-browser markdown', color: INK.green },
       { name: 'markdown --links text', color: '#7dd3fc' },
     ],
-    groups: heavy.map((r) => ({
+    groups: readmeRows.map((r) => ({
       label: r.label,
-      sub: `${kb(r.md)} md  •  ${kb(r.text)} lean`,
-      values: [r.html, r.md, r.text],
-      labels: [kb(r.html), kb(r.md), kb(r.text)],
-      pill: `${(r.html / r.md).toFixed(1)}x / ${(r.html / r.text).toFixed(1)}x`,
+      sub: `${formatBytes(r.payloads.defaultMarkdown.bytes)} md  •  ${formatBytes(r.payloads.linksText.bytes)} lean`,
+      values: [r.payloads.rawDom.bytes, r.payloads.defaultMarkdown.bytes, r.payloads.linksText.bytes],
+      labels: [
+        formatBytes(r.payloads.rawDom.bytes),
+        formatBytes(r.payloads.defaultMarkdown.bytes),
+        formatBytes(r.payloads.linksText.bytes),
+      ],
+      pill: `${ratio(r.payloads.rawDom.bytes, r.payloads.defaultMarkdown.bytes)}x / ${ratio(r.payloads.rawDom.bytes, r.payloads.linksText.bytes)}x`,
     })),
-    footer: 'github.com/TrueNix/agent-browser',
-    format: (v) => `${Math.round(v / 1000)}kB`,
+    footer: 'Measured live by npm run charts  •  details in benchmark-results.json',
+    format: (v) => `${Math.round(v / 1000)} kB`,
   }), { width: 900, height: 480, out: join(root, 'heavy-benchmark.png') });
 
-  const money = (m, inTok) => (inTok / 1e6) * m.input + (OUTPUT_TOKENS / 1e6) * m.output;
+  const tokenGroups = [
+    ...scenarioRows.map((row) => ({ label: row.label, payloads: row.payloads })),
+    { label: 'Combined\n(2 page inputs)', payloads: scenarioPayloads },
+  ];
   await renderPng(barChart({
     width: 900,
     height: 500,
-    title: 'Token Cost: Raw HTML vs agent-browser',
-    subtitle: `HN + YC Blog, one check  •  markdown --links text  •  ${(rawIn / 1000).toFixed(1)}k → ${(leanIn / 1000).toFixed(1)}k tokens  •  ${(rawIn / leanIn).toFixed(1)}× smaller payload`,
+    title: 'Page-input tokens: Rendered DOM vs agent-browser',
+    subtitle: `Hacker News + YC Blog  •  exact o200k_base  •  ${formatTokens(scenarioPayloads.rawDom.tokens)} → ${formatTokens(scenarioPayloads.linksText.tokens)} tokens  •  ${scenario.tokenReduction.linksText}× smaller`,
     series: [
-      { name: `Raw HTML (${(rawIn / 1000).toFixed(1)}k in)`, color: INK.red },
-      { name: `agent-browser (${(leanIn / 1000).toFixed(1)}k in)`, color: INK.green },
+      { name: 'Rendered DOM', color: INK.red },
+      { name: 'Markdown', color: INK.green },
+      { name: 'Markdown --links text', color: '#7dd3fc' },
     ],
-    groups: MODELS.map((m) => {
-      const raw = money(m, rawIn);
-      const lean = money(m, leanIn);
-      return {
-        label: m.name,
-        sub: `$${m.input}/$${m.output}`,
-        values: [raw, lean],
-        labels: [`$${raw.toFixed(3)}`, `$${lean.toFixed(3)}`],
-        pill: `-${Math.round((1 - lean / raw) * 100)}%`,
-      };
-    }),
-    note: `+${OUTPUT_TOKENS} out tokens`,
-    footer: 'Anthropic claude.com/pricing • OpenAI openai.com/api/pricing • Aug 2026',
-    format: (v) => `$${v.toFixed(3)}`,
+    groups: tokenGroups.map((group) => ({
+      label: group.label,
+      sub: 'input payload only',
+      values: [
+        group.payloads.rawDom.tokens,
+        group.payloads.defaultMarkdown.tokens,
+        group.payloads.linksText.tokens,
+      ],
+      labels: [
+        formatTokens(group.payloads.rawDom.tokens),
+        formatTokens(group.payloads.defaultMarkdown.tokens),
+        formatTokens(group.payloads.linksText.tokens),
+      ],
+      pill: `${ratio(group.payloads.rawDom.tokens, group.payloads.linksText.tokens)}x smaller`,
+    })),
+    note: 'Excludes prompts, retries, output',
+    footer: 'Exact o200k_base tokens  •  details in benchmark-results.json',
+    format: (v) => formatTokens(Math.round(v)),
   }), { width: 900, height: 500, out: join(root, 'token-cost-graph.png') });
+
+  updateReadmeTable(pages);
+  writeFileSync(join(root, 'benchmark-results.json'), `${JSON.stringify(results, null, 2)}\n`);
+  console.log('  wrote benchmark-results.json and synchronized the README table');
 }
 
 main().catch((err) => {

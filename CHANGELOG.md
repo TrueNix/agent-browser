@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+- `session.evaluate()`, CLI `eval`, and the `browser_evaluate` tool now run in an
+  isolated JavaScript world by default. The DOM is shared, but page-defined
+  globals and patched prototypes are not. Pass `{ world: 'main' }` to the
+  library/tool or `--world main` to the CLI when page-defined JavaScript is
+  intentionally required.
+
+### Fixed
+
+- Markdown extraction omits `hidden`, `inert`, `aria-hidden`, `display:none`,
+  `visibility:hidden`, opacity-zero, and collapsed disclosure content instead
+  of forwarding it into an agent prompt.
+- The live detector gate rejects incomplete/challenge output and actively
+  verifies the Rebrowser execution paths it reports.
+- Benchmarks use UTF-8 byte sizes and exact `o200k_base` input-token counts,
+  publish their environment and page metadata in `benchmark-results.json`, and
+  no longer present estimated provider costs as measured savings.
+
 ## 2.0.1
 
 ### Fixed

@@ -1,6 +1,6 @@
 # agent-browser
 
-A hardened local browser for AI agents. **Zero dependencies.** Drives the Chrome you already have over the DevTools Protocol, extracts token-efficient Markdown, and is not trivially flagged as automation.
+A hardened local browser for AI agents. **Zero runtime dependencies.** Drives the Chrome you already have over the DevTools Protocol, extracts token-efficient Markdown, and is not trivially flagged as automation.
 
 | Surface | Install | Use it for |
 | --- | --- | --- |
@@ -17,32 +17,42 @@ Everything runs locally. No account, no API key, no remote service, no quota.
 
 ## Why
 
-Feeding an agent raw HTML wastes most of its context. Measured on real pages:
+Feeding an agent the full rendered DOM wastes most of its context. Measured on real pages:
 
 And a browser that announces itself as automation gets blocked, degraded, or served different content — which quietly corrupts whatever the agent concluded.
 
-### Heavy-site benchmark (live, `curl` vs `markdown`)
+### Rendered-page benchmark (live DOM vs Markdown)
 
-| site | raw HTML | markdown | `--links text` | saving |
-| --- | --- | --- | --- | --- |
-| `en.wikipedia.org/wiki/WebAssembly` | 927 kB | **120 kB** | 55 kB | 7.7× / 16.8× |
-| `react.dev` | 273 kB | **11 kB** | 8.7 kB | 23.8× / 31.4× |
-| `nextjs.org` | 323 kB | **10 kB** | 7.3 kB | 32.0× / 44.2× |
-| `github.com/trending` | 648 kB | **69 kB** | 13 kB | 9.3× / 48.9× |
-| `apple.com` | 360 kB | **4.6 kB** | 3.5 kB | 78.6× / 102.8× |
-| `news.ycombinator.com` | 35 kB | **10 kB** | 3.2 kB | 3.4× / 11.0× |
+Each cell is **UTF-8 bytes / exact `o200k_base` tokens**. The first payload is
+the serialized DOM after JavaScript and the page `load` event, not a `curl`
+response. Reductions compare page-input tokens only.
 
-Regenerate both charts and this table's underlying measurements with
-`npm run charts` — it measures live, then draws the PNGs using agent-browser
-itself, so the numbers in the images cannot drift from what the code produces.
+<!-- benchmark-table:start -->
+| site | rendered DOM | Markdown | `--links text` | exact token reduction |
+| --- | ---: | ---: | ---: | ---: |
+| `en.wikipedia.org/wiki/WebAssembly` | 861 kB / 282k tok | **82.6 kB / 21.9k tok** | 48.0 kB / 12.2k tok | 12.87× / 23.14× |
+| `react.dev` | 273 kB / 108k tok | **11.3 kB / 3.1k tok** | 8.6 kB / 1.9k tok | 34.73× / 57.23× |
+| `nextjs.org` | 344 kB / 127k tok | **5.3 kB / 1.2k tok** | 4.2 kB / 0.9k tok | 102.08× / 133.77× |
+| `github.com/trending` | 666 kB / 218k tok | **7.7 kB / 2.2k tok** | 4.2 kB / 1.1k tok | 100.86× / 200.25× |
+| `apple.com` | 362 kB / 143k tok | **4.1 kB / 1.2k tok** | 3.1 kB / 0.9k tok | 123.77× / 165.55× |
+| `news.ycombinator.com` | 34.7 kB / 11.7k tok | **10.2 kB / 3.4k tok** | 3.1 kB / 1.1k tok | 3.46× / 11× |
+<!-- benchmark-table:end -->
 
-### Spending fewer tokens on the same page
+From a source checkout, regenerate both charts and this table's underlying
+measurements with `npm run charts` — it measures live, then draws the PNGs using
+agent-browser itself, updates the table, and writes the full machine-readable
+snapshot to
+[`benchmark-results.json`](https://github.com/TrueNix/agent-browser/blob/main/benchmark-results.json).
+The exact tokenizer is a development dependency; the published browser package
+remains zero-dependency.
 
-URLs are a third of the output on a Wikipedia article and four fifths of it on
-`github.com/trending`. When the agent is reading rather than navigating, drop them:
+### Spending fewer page-input tokens
+
+Links can dominate extracted output on navigation-heavy pages. When the agent
+is reading rather than navigating, drop their targets:
 
 ```bash
-agent-browser markdown https://github.com/trending --links text      # 69 kB -> 13 kB
+agent-browser markdown https://github.com/trending --links text
 agent-browser markdown https://en.wikipedia.org/wiki/Rust --links relative
 ```
 
@@ -54,8 +64,8 @@ agent-browser markdown https://en.wikipedia.org/wiki/Rust --links relative
 
 ![Heavy-site benchmark](./heavy-benchmark.png)
 
-![Token cost: Raw HTML vs agent-browser](./token-cost-graph.png)
-*Token cost per YC check (HN + YC Blog read with `--links text`, 51.1k → 1.5k tokens, +500 out) — Aug 2026 list pricing: Anthropic Haiku 4.5 $1/$5, Sonnet 5 $3/$15, Opus 5 $5/$25 • OpenAI GPT-4o $2.50/$10, GPT-4o mini $0.15/$0.60*
+![Page-input tokens: Rendered DOM vs agent-browser](./token-cost-graph.png)
+*Exact `o200k_base` page-input tokens for Hacker News + YC Blog. This excludes prompts, tool schemas, retries, caching, model output, and provider pricing; it is not an end-to-end cost estimate.*
 
 ### Pages that render after load
 
@@ -216,7 +226,7 @@ agent-browser <command> [options]
   tools              Print tool schemas (--format mcp|openai|anthropic)
 ```
 
-Options: `--headful`, `--no-stealth`, `--block-images`, `--gpu`/`--no-gpu`, `--width`, `--height`, `--viewport WxH`, `--main`, `--raw`, `--links`, `--max-rows`, `--limit`, `--wait`, `--settle`, `--full`, `--endpoint <ws>`, `--timeout`, `--json`, `-o`.
+Options: `--headful`, `--no-stealth`, `--block-images`, `--gpu`/`--no-gpu`, `--width`, `--height`, `--viewport WxH`, `--main`, `--raw`, `--links`, `--max-rows`, `--limit`, `--wait`, `--settle`, `--world isolated|main`, `--full`, `--endpoint <ws>`, `--timeout`, `--json`, `-o`.
 
 ### `markdown` to read, `eval` to look something up
 
@@ -349,16 +359,20 @@ Run it yourself: `npm run test:bot`. Latest result:
 | detector | result |
 | --- | --- |
 | [`bot.sannysoft.com`](https://bot.sannysoft.com/) | **31 passed, 0 failed** |
-| [`bot-detector.rebrowser.net`](https://bot-detector.rebrowser.net/) | **6 green, 0 red**, `runtimeEnableLeak: clean` |
+| [`bot-detector.rebrowser.net`](https://bot-detector.rebrowser.net/) | **8 green, 0 unsafe**; active isolated probe stayed gray |
 | [`deviceandbrowserinfo.com`](https://deviceandbrowserinfo.com/are_you_a_bot) | **`isBot: false`**, 0 of 22 checks flagged |
+| [`arh.antoinevastel.com`](https://arh.antoinevastel.com/bots/areyouheadless) | **SKIP**, detector returned HTTP 502 |
 
 Plain headless Chrome fails four sannysoft rows (`HEADCHR_UA`, `CHR_MEMORY`, WebGL SwiftShader, old UA) and is reported as a bot.
 
-An unreachable detector counts as **SKIP**, never as a pass, and the gate requires three reachable passes — so a day when the test sites are down cannot be mistaken for success.
+A network failure or detector-side 5xx counts as **SKIP**, never as a pass.
+Loaded 4xx, challenge, incomplete, and unrecognized pages fail closed. The gate
+requires three reachable passes, so a day when the test sites are down cannot be
+mistaken for success.
 
 ### Environment matters more than patching
 
-The identical code, measured in two places:
+Release 2.0.1, measured in two places:
 
 | | this workstation | GitHub Actions runner |
 | --- | --- | --- |
@@ -368,10 +382,10 @@ The identical code, measured in two places:
 | `bot-detector.rebrowser.net` | 6 green, **0 red** | 6 green, **0 red** |
 | `deviceandbrowserinfo.com` | **`isBot: false`** | **`isBot: true`** (`hasSuspiciousWeakSignals`) |
 
-Every CDP-level signal stays clean in both — that part is code, and the code is
-right. What flips the verdict is the environment: a datacenter ASN plus software
-rendering trips a weak-signal composite that no amount of fingerprint patching
-addresses.
+In that run, every CDP-level signal exercised by these detector suites stayed
+non-positive in both. What flipped the verdict was the environment: a datacenter
+ASN plus software rendering tripped a weak-signal composite that no amount of
+fingerprint patching addresses.
 
 This is the honest shape of the problem. Hardening the browser removes the
 *trivial* tells. Where you run it decides the rest.
@@ -380,8 +394,9 @@ This is the honest shape of the problem. Hardening the browser removes the
 
 Every item came from a detector telling us we were wrong:
 
-- **No `--enable-automation`.** That flag — which Puppeteer and Playwright add — is what sets `navigator.webdriver = true`. Raw CDP does not set it, so it stays `false` with nothing patched.
+- **No automation-controlled Blink feature.** Chrome's headless and `--remote-debugging-port=0` paths normally expose `navigator.webdriver = true`. The launcher disables `AutomationControlled` and does not add `--enable-automation`, so the value stays `false`.
 - **No `Runtime.enable`.** It is the loudest CDP tell and powers the classic console/`Error.stack` detector. `Runtime.evaluate` works fine without it.
+- **Isolated evaluation by default.** Reads and Markdown extraction share the DOM but do not touch page-installed globals or prototype hooks. `eval --world main` is an explicit escape hatch for code that needs page-defined JavaScript.
 - **Window and screen move together.** `--window-size` without `--ozone-override-screen-size` gives `outerWidth > screen.width`, which is physically impossible — a *stronger* signal than plain headless.
 - **No default device-metrics override.** The usual 1280×720 is Playwright's default viewport and detectors flag it *by name*. Set `--viewport` only if you need it.
 - **Real GPU when available**, giving a genuine `ANGLE (NVIDIA …)` renderer instead of SwiftShader.

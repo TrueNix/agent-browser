@@ -75,5 +75,8 @@
     "probe": "node src/cli.mjs probe",
     "charts": "node scripts/make-charts.mjs"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "devDependencies": {
+    "gpt-tokenizer": "4.0.0"
+  }
 }

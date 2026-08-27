@@ -1,0 +1,255 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-27T14:38:15.103Z",
+  "measurementStartedAt": "2026-08-27T14:38:04.430Z",
+  "tokenizer": {
+    "encoding": "o200k_base",
+    "implementation": "gpt-tokenizer",
+    "version": "4.0.0",
+    "exact": true
+  },
+  "extraction": {
+    "rawDom": "document.documentElement.outerHTML after page load",
+    "defaultMarkdown": {
+      "main": true,
+      "links": "inline",
+      "maxRows": 60
+    },
+    "linksText": {
+      "main": true,
+      "links": "text",
+      "maxRows": 60
+    }
+  },
+  "source": {
+    "repository": "https://github.com/TrueNix/agent-browser.git",
+    "branch": "main",
+    "commit": "75b90f264af0db5e9937fa9bec3bfa9727d00b55",
+    "workingTreeDirtyAtGeneration": true
+  },
+  "environment": {
+    "node": "v22.23.1",
+    "platform": "linux",
+    "architecture": "x64",
+    "os": "Linux 7.1.8-pikaos",
+    "browser": {
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+      "platform": "Linux x86_64",
+      "language": "en-US",
+      "hardwareConcurrency": 24,
+      "deviceMemoryGiB": 32
+    }
+  },
+  "pages": [
+    {
+      "id": "wikipedia-webassembly",
+      "url": "https://en.wikipedia.org/wiki/WebAssembly",
+      "label": "Wikipedia\nWebAssembly",
+      "readmeLabel": "en.wikipedia.org/wiki/WebAssembly",
+      "readmeTable": true,
+      "finalUrl": "https://en.wikipedia.org/wiki/WebAssembly",
+      "title": "WebAssembly - Wikipedia",
+      "httpStatus": 200,
+      "capturedAt": "2026-08-27T14:38:05.671Z",
+      "payloads": {
+        "rawDom": {
+          "bytes": 861462,
+          "tokens": 282051
+        },
+        "defaultMarkdown": {
+          "bytes": 82595,
+          "tokens": 21912
+        },
+        "linksText": {
+          "bytes": 48036,
+          "tokens": 12190
+        }
+      }
+    },
+    {
+      "id": "react",
+      "url": "https://react.dev",
+      "label": "react.dev",
+      "readmeLabel": "react.dev",
+      "readmeTable": true,
+      "finalUrl": "https://react.dev/",
+      "title": "React",
+      "httpStatus": 200,
+      "capturedAt": "2026-08-27T14:38:06.355Z",
+      "payloads": {
+        "rawDom": {
+          "bytes": 272535,
+          "tokens": 107824
+        },
+        "defaultMarkdown": {
+          "bytes": 11288,
+          "tokens": 3105
+        },
+        "linksText": {
+          "bytes": 8554,
+          "tokens": 1884
+        }
+      }
+    },
+    {
+      "id": "nextjs",
+      "url": "https://nextjs.org",
+      "label": "nextjs.org",
+      "readmeLabel": "nextjs.org",
+      "readmeTable": true,
+      "finalUrl": "https://nextjs.org/",
+      "title": "Next.js by Vercel - The React Framework",
+      "httpStatus": 200,
+      "capturedAt": "2026-08-27T14:38:07.676Z",
+      "payloads": {
+        "rawDom": {
+          "bytes": 343700,
+          "tokens": 126679
+        },
+        "defaultMarkdown": {
+          "bytes": 5268,
+          "tokens": 1241
+        },
+        "linksText": {
+          "bytes": 4230,
+          "tokens": 947
+        }
+      }
+    },
+    {
+      "id": "github-trending",
+      "url": "https://github.com/trending",
+      "label": "github.com\n/trending",
+      "readmeLabel": "github.com/trending",
+      "readmeTable": true,
+      "finalUrl": "https://github.com/trending",
+      "title": "Trending repositories on GitHub today · GitHub",
+      "httpStatus": 200,
+      "capturedAt": "2026-08-27T14:38:09.902Z",
+      "payloads": {
+        "rawDom": {
+          "bytes": 665866,
+          "tokens": 218471
+        },
+        "defaultMarkdown": {
+          "bytes": 7692,
+          "tokens": 2166
+        },
+        "linksText": {
+          "bytes": 4193,
+          "tokens": 1091
+        }
+      }
+    },
+    {
+      "id": "apple",
+      "url": "https://apple.com",
+      "label": "apple.com",
+      "readmeLabel": "apple.com",
+      "readmeTable": true,
+      "finalUrl": "https://www.apple.com/",
+      "title": "Apple",
+      "httpStatus": 200,
+      "capturedAt": "2026-08-27T14:38:10.914Z",
+      "payloads": {
+        "rawDom": {
+          "bytes": 361788,
+          "tokens": 142704
+        },
+        "defaultMarkdown": {
+          "bytes": 4103,
+          "tokens": 1153
+        },
+        "linksText": {
+          "bytes": 3138,
+          "tokens": 862
+        }
+      }
+    },
+    {
+      "id": "hacker-news",
+      "url": "https://news.ycombinator.com",
+      "label": "Hacker News",
+      "readmeLabel": "news.ycombinator.com",
+      "readmeTable": true,
+      "finalUrl": "https://news.ycombinator.com/",
+      "title": "Hacker News",
+      "httpStatus": 200,
+      "capturedAt": "2026-08-27T14:38:11.983Z",
+      "payloads": {
+        "rawDom": {
+          "bytes": 34671,
+          "tokens": 11749
+        },
+        "defaultMarkdown": {
+          "bytes": 10189,
+          "tokens": 3395
+        },
+        "linksText": {
+          "bytes": 3149,
+          "tokens": 1068
+        }
+      }
+    },
+    {
+      "id": "yc-blog",
+      "url": "https://www.ycombinator.com/blog",
+      "label": "YC Blog",
+      "readmeLabel": "www.ycombinator.com/blog",
+      "readmeTable": false,
+      "finalUrl": "https://www.ycombinator.com/blog",
+      "title": "Y Combinator",
+      "httpStatus": 200,
+      "capturedAt": "2026-08-27T14:38:15.092Z",
+      "payloads": {
+        "rawDom": {
+          "bytes": 170656,
+          "tokens": 52417
+        },
+        "defaultMarkdown": {
+          "bytes": 5429,
+          "tokens": 1414
+        },
+        "linksText": {
+          "bytes": 3036,
+          "tokens": 687
+        }
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "hacker-news-and-yc-blog",
+      "label": "Hacker News + YC Blog",
+      "pageIds": [
+        "hacker-news",
+        "yc-blog"
+      ],
+      "aggregation": "sum of independently tokenized page payloads",
+      "payloads": {
+        "rawDom": {
+          "bytes": 205327,
+          "tokens": 64166
+        },
+        "defaultMarkdown": {
+          "bytes": 15618,
+          "tokens": 4809
+        },
+        "linksText": {
+          "bytes": 6185,
+          "tokens": 1755
+        }
+      },
+      "tokenReduction": {
+        "defaultMarkdown": 13.34,
+        "linksText": 36.56
+      }
+    }
+  ],
+  "limitations": [
+    "Live pages change over time, so results are a dated snapshot.",
+    "A successful HTTP status is required, but HTTP 200 challenge or experiment pages are still possible.",
+    "Counts cover page-input payloads only, not prompts, tool schemas, retries, caches, or model output.",
+    "Token totals use o200k_base and may differ for models with another tokenizer."
+  ]
+}
