@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 3.0.0
+
 ### Breaking
 
 - `session.evaluate()`, CLI `eval`, and the `browser_evaluate` tool now run in an
