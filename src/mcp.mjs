@@ -74,22 +74,27 @@ export async function startMcpServer() {
       if (!tool) { fail(id, -32602, `unknown tool: ${params?.name}`); return; }
       const args = params.arguments ?? {};
       try {
+        let warnings = [];
         const value = await runSession(async (session) => {
-          if (!tool.noNavigate) {
-            if (!args.url) throw new Error(`${tool.name} requires "url"`);
-            // No device-metrics override: the launch geometry is already
-            // consistent, and 1280x720 is a known automation fingerprint.
-            await session.navigate(args.url, { waitUntil: args.waitUntil || 'load' });
-          }
-          return tool.run(session, args);
+          if (tool.noNavigate) return tool.run(session, args);
+          if (!args.url) throw new Error(`${tool.name} requires "url"`);
+          // No device-metrics override: the launch geometry is already
+          // consistent, and 1280x720 is a known automation fingerprint.
+          await session.navigate(args.url, { waitUntil: args.waitUntil || 'load' });
+          const result = await tool.run(session, args);
+          warnings = session.warnings();
+          return result;
         });
 
+        // A separate block, so the warning cannot be mistaken for page text
+        // and survives a client that only shows the first block of an image.
+        const notes = warnings.map((warning) => ({ type: 'text', text: `[agent-browser warning] ${warning}` }));
         if (tool.image) {
-          reply(id, { content: [{ type: 'image', data: value.toString('base64'), mimeType: 'image/png' }] });
+          reply(id, { content: [{ type: 'image', data: value.toString('base64'), mimeType: 'image/png' }, ...notes] });
           return;
         }
         const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-        reply(id, { content: [{ type: 'text', text: text || '(empty result)' }] });
+        reply(id, { content: [{ type: 'text', text: text || '(empty result)' }, ...notes] });
       } catch (err) {
         // MCP convention: tool failures come back as isError content, not a
         // protocol error, so the agent can read and react to the message.

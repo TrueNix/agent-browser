@@ -470,6 +470,67 @@ await test('hidden table cells retain their column placeholders', async () => {
   });
 });
 
+await test('button text survives only when it carries data', async () => {
+  await withBrowser({}, async (session) => {
+    const html = '<main><h1>Profile</h1>'
+      + '<button title="13,111,999"><p><span>13.1M</span></p><p>Followers</p></button>'
+      + '<button>69 Following</button>'
+      + '<button>DO_NOT_SHOW_CHROME</button>'
+      + '<button hidden>DO_NOT_SHOW 42</button>'
+      + '<button>Like</button>'
+      + '<button aria-label="Reply"><svg></svg><span>206</span></button>'
+      + '<button aria-label="Like" title="Like">2.15k</button>'
+      + '<table><tr><th>Repo</th><th>Stars</th></tr><tr><td>x</td><td><button>1.2k stars</button></td></tr></table>'
+      + '</main>';
+    await session.navigate(`data:text/html,${encodeURIComponent(html)}`);
+    const md = await session.markdown({ main: false });
+    assert(md.includes('13.1M Followers') && md.includes('69 Following'), `counter buttons were dropped: ${md}`);
+    assert(md.includes('Reply 206') && md.includes('Like 2.15k') && !md.includes('13,111,999 13.1M'),
+      `an icon counter lost its label or a numeric title was prepended: ${md}`);
+    assert(md.includes('| x | 1.2k stars |'), `counter button in a table cell was dropped: ${md}`);
+    assert(!md.includes('DO_NOT_SHOW'), `chrome or hidden button text leaked: ${md}`);
+  });
+});
+
+await test('a throttled or unrendered page comes back with a warning', async () => {
+  const { createServer } = await import('node:http');
+  const server = createServer((req, res) => {
+    if (req.url === '/api') { res.writeHead(429); res.end('slow down'); return; }
+    if (req.url === '/shell') {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<div id=app>Loading…</div><script>setTimeout(()=>{app.textContent="late content"},3000)</script>');
+      return;
+    }
+    if (req.url === '/plain') {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end(`<main><p>${'ordinary loaded page '.repeat(20)}</p></main>`);
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<main><p>No posts</p></main><script>fetch("/api").then(()=>{},()=>{})</script>');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    await withBrowser({}, async (session) => {
+      const throttled = await session.navigate(`${base}/`, { waitUntil: 'idle' });
+      await session.markdown();
+      assert(session.warnings().some((w) => /rate-limited 1 .*HTTP 429/.test(w)),
+        `no rate-limit warning: ${JSON.stringify(session.warnings())}`);
+      assert(Array.isArray(throttled.warnings), 'navigate() must return a warnings array');
+
+      const shell = await session.navigate(`${base}/shell`);
+      assert(shell.warnings.some((w) => /waitUntil "idle"/.test(w)), `no loading-shell hint: ${JSON.stringify(shell.warnings)}`);
+
+      const plain = await session.navigate(`${base}/plain`);
+      assert(plain.warnings.length === 0 && session.warnings().length === 0,
+        `a clean page carried stale warnings: ${JSON.stringify(session.warnings())}`);
+    });
+  } finally {
+    server.close();
+  }
+});
+
 await test('deep extraction computes visibility once per element', async () => {
   await withBrowser({}, async (session) => {
     const depth = 400;

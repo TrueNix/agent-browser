@@ -285,10 +285,16 @@ async function main() {
     });
 
     const emit = (value) => {
+      // Collected after extraction: a client-rendered page is still fetching
+      // (and getting throttled) after navigate() returns.
+      const warnings = session.warnings();
       if (opts.json) {
-        process.stdout.write(`${JSON.stringify({ url: state.url, title: state.title, status: state.status, result: value }, null, 2)}\n`);
+        process.stdout.write(`${JSON.stringify({
+          url: state.url, title: state.title, status: state.status, warnings, result: value,
+        }, null, 2)}\n`);
       } else {
         process.stdout.write(typeof value === 'string' ? `${value}\n` : `${JSON.stringify(value, null, 2)}\n`);
+        for (const warning of warnings) process.stderr.write(`agent-browser: warning: ${warning}\n`);
       }
     };
 

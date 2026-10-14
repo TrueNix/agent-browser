@@ -24,6 +24,18 @@ const LIFECYCLE = {
   idle: 'networkAlmostIdle',
 };
 
+/**
+ * Whether two URLs belong to the same site, compared on the last two host
+ * labels. Approximate (no public-suffix list), which is fine for its one use:
+ * telling a page's own API calls apart from third-party trackers.
+ */
+function sameSite(a, b) {
+  try {
+    const site = (url) => new URL(url).hostname.split('.').slice(-2).join('.');
+    return site(a) === site(b);
+  } catch { return false; }
+}
+
 export class BrowserError extends Error {
   constructor(message, details) {
     super(message);
@@ -259,6 +271,16 @@ export class BrowserSession {
           statusText: params.response?.statusText,
           url: params.response?.url,
         };
+        return;
+      }
+      // A client-rendered page that is throttled still returns 200 for its
+      // document and then renders "No posts" or a spinner. Only its own data
+      // calls carry the real signal, so remember the ones that went wrong.
+      const status = params.response?.status;
+      if ((params.type === 'XHR' || params.type === 'Fetch')
+        && (status === 429 || status >= 500)
+        && sameSite(params.response?.url, this.lastDocument?.url)) {
+        this.#dataErrors.push(status);
       }
     });
     this.connection.on('Network.loadingFailed', (params) => {
@@ -268,6 +290,38 @@ export class BrowserSession {
         this.lastFailure = { errorText: params.errorText, canceled: params.canceled === true };
       }
     });
+  }
+
+  #dataErrors = [];
+  #looksUnrendered = false;
+
+  /**
+   * Plain-language problems with the last navigation that an agent cannot see
+   * in the extracted content: the site throttled or failed its own data
+   * requests, or the page was read before its JavaScript rendered anything.
+   * Read it AFTER extracting, because a client-rendered page keeps fetching
+   * data after the load event.
+   *
+   * @returns {string[]}
+   */
+  warnings() {
+    const warnings = [];
+    const limited = this.#dataErrors.filter((status) => status === 429).length;
+    const failed = this.#dataErrors.length - limited;
+    if (limited > 0) {
+      warnings.push(`the site rate-limited ${limited} of this page's data request${limited === 1 ? '' : 's'} `
+        + '(HTTP 429), so content is probably missing or replaced by an empty or error state. '
+        + 'Wait a minute or two before loading this site again; retrying immediately extends the limit.');
+    }
+    if (failed > 0) {
+      warnings.push(`${failed} of this page's data request${failed === 1 ? '' : 's'} failed with a server `
+        + 'error (HTTP 5xx), so content may be incomplete.');
+    }
+    if (this.#looksUnrendered && limited === 0) {
+      warnings.push('the page looks like an unrendered loading shell. Its content is probably fetched '
+        + 'by JavaScript after the load event; retry with waitUntil "idle" (CLI: --wait idle).');
+    }
+    return warnings;
   }
 
   send(method, params, options) { return this.connection.send(method, params, options); }
@@ -306,6 +360,8 @@ export class BrowserSession {
   } = {}) {
     this.lastDocument = null;
     this.lastFailure = null;
+    this.#dataErrors = [];
+    this.#looksUnrendered = false;
 
     const milestone = LIFECYCLE[waitUntil];
     if (!milestone) {
@@ -333,15 +389,19 @@ export class BrowserSession {
     if (throwOnHttpError && typeof status === 'number' && status >= 400) {
       throw new BrowserError(`navigation to ${url} returned HTTP ${status} ${this.lastDocument.statusText ?? ''}`.trim());
     }
-    return { ...state, status, statusText: this.lastDocument.statusText };
+    // Only a guess worth voicing when the caller did not already wait for idle.
+    this.#looksUnrendered = waitUntil !== 'idle'
+      && (state.bodyLength < 100 || (state.loading && state.bodyLength < 1500));
+    return { ...state, status, statusText: this.lastDocument.statusText, warnings: this.warnings() };
   }
 
   async readState() {
     const value = await this.evaluate(
-      'JSON.stringify({title:document.title,url:location.href,readyState:document.readyState,'
-      + 'bodyLength:document.body?(document.body.innerText||"").trim().length:0})',
+      '(()=>{const t=document.body?(document.body.innerText||"").trim():"";'
+      + 'return JSON.stringify({title:document.title,url:location.href,readyState:document.readyState,'
+      + 'bodyLength:t.length,loading:/\\b(loading|please wait)\\b/i.test(t.slice(0,2000))})})()',
     );
-    try { return JSON.parse(value); } catch { return { title: '', url: '', readyState: 'unknown', bodyLength: 0 }; }
+    try { return JSON.parse(value); } catch { return { title: '', url: '', readyState: 'unknown', bodyLength: 0, loading: false }; }
   }
 
   /**

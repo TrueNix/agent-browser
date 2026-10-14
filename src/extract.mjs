@@ -186,7 +186,9 @@ export const htmlToMarkdown = function convert(root, options) {
         if (frame.textVisible) parts.push(node.nodeValue || '');
         continue;
       }
-      if (node.nodeType !== 1 || SKIP[node.tagName]) continue;
+      // The element itself is exempt so a caller can read a SKIP tag on purpose
+      // (a counter button); its SKIP descendants are still dropped.
+      if (node.nodeType !== 1 || (node !== element && SKIP[node.tagName])) continue;
       const state = stateOf(node);
       if (state.hardHidden) continue;
       if (node.tagName === 'BR') {
@@ -204,6 +206,25 @@ export const htmlToMarkdown = function convert(root, options) {
     return preserveWhitespace ? text : norm(text).trim();
   };
   const flat = (element) => visibleText(element, false);
+
+  /**
+   * Button text is UI chrome ("Sign in", "Close", "Follow") and is skipped,
+   * except when it carries a number. Social and forge sites put their data in
+   * buttons — "13.1M Followers", "1.2k stars", "42 replies" — and an agent
+   * asked "how many followers" must not get an answer-shaped silence.
+   */
+  const buttonData = (button) => {
+    const text = flat(button);
+    if (text.length > 80 || !/\d/.test(text)) return '';
+    // An icon button shows only the count ("2.15k"); its accessible name says
+    // what was counted ("Like"). A bare number is useless to an agent.
+    const label = norm(button.getAttribute('aria-label') || button.getAttribute('title') || '').trim();
+    if (label && /\p{L}/u.test(label) && label.length <= 40
+      && text.toLowerCase().indexOf(label.toLowerCase()) < 0) {
+      return label + ' ' + text;
+    }
+    return text;
+  };
   if (blockedByAncestor(root.parentElement)) return '';
   const out = [];
 
@@ -247,6 +268,10 @@ export const htmlToMarkdown = function convert(root, options) {
       if (node.nodeType !== 1) continue;
 
       const tag = node.tagName;
+      if (tag === 'BUTTON') {
+        if (!stateOf(node).hardHidden) parts.push(' ' + buttonData(node) + ' ');
+        continue;
+      }
       if (SKIP[tag]) continue;
       const state = stateOf(node);
       if (state.hardHidden) continue;
@@ -336,6 +361,11 @@ export const htmlToMarkdown = function convert(root, options) {
     if (node.nodeType !== 1) continue;
 
     const tag = node.tagName;
+    if (tag === 'BUTTON') {
+      const text = stateOf(node).hardHidden ? '' : buttonData(node);
+      if (text) out.push(` ${text} `);
+      continue;
+    }
     if (SKIP[tag]) continue;
     const state = stateOf(node);
     if (state.hardHidden) continue;

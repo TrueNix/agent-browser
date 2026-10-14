@@ -97,7 +97,13 @@ export function apply(ctx, config = {}) {
         const note = result.stdout?.truncated
           ? `\n\n[truncated by the shell output cap${result.stdout.spillPath ? `; complete output at ${result.stdout.spillPath}` : ''}]`
           : '';
-        return { text: (stdout || '(empty result)') + note, command };
+        // The CLI reports rate limits and unrendered pages on stderr; on a
+        // successful run that is the only place the agent would learn of them.
+        const warnings = stderr.split('\n')
+          .filter((line) => line.startsWith('agent-browser: warning: '))
+          .map((line) => `\n\n[agent-browser warning] ${line.slice('agent-browser: warning: '.length)}`)
+          .join('');
+        return { text: (stdout || '(empty result)') + note + warnings, command };
       },
     }));
   }

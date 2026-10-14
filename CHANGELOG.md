@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- Navigation warnings an agent cannot otherwise see. When a page's own data
+  requests are rate-limited (HTTP 429) or fail with 5xx, or the page is read
+  while it is still an unrendered loading shell, the result says so in plain
+  language with what to do next. The CLI prints them to stderr (and as
+  `warnings` under `--json`), MCP adds a separate `[agent-browser warning]`
+  text block, the Cordis plugin appends them to the tool text, and library
+  callers get `navigate().warnings` and `session.warnings()`.
+
+### Fixed
+
+- Markdown keeps button text that carries a number ("13.1M Followers",
+  "1.2k stars"). Social and forge sites put counts in buttons, which were
+  dropped wholesale; plain UI buttons such as "Sign in" are still omitted.
+
 ## 3.0.0
 
 ### Breaking

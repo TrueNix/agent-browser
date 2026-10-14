@@ -93,6 +93,13 @@ agent-browser markdown https://some-spa.example --wait idle
 | `load` *(default)* | the load event | almost always |
 | `idle` | the network goes quiet | the result looks like an empty shell |
 
+You do not have to spot the empty shell yourself. When a result looks like an
+unrendered `Loading…` page, or the site rate-limited its own data requests
+(HTTP 429 — common on social sites for logged-out visitors), agent-browser adds
+a warning that says what happened and what to do: on stderr for the CLI, under
+`warnings` with `--json`, and as a separate `[agent-browser warning]` block in
+MCP results.
+
 ## Any other harness
 
 If your framework speaks JSON Schema, it can drive agent-browser without this
