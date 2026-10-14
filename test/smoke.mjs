@@ -646,13 +646,16 @@ await test('waitUntil rejects a mode it does not have', async () => {
 
 await test('extracts links and an accessibility tree', async () => {
   await withBrowser({}, async (session) => {
-    await session.navigate('https://example.com');
+    // A local fixture: example.com changed its markup (dropping its heading)
+    // and now asks not to be relied on for testing.
+    const html = '<main><h1>Fixture heading</h1><p>Body <a href="https://docs.test/page">a link</a></p></main>';
+    await session.navigate(`data:text/html,${encodeURIComponent(html)}`);
     const links = await session.links();
     assert(links.links.length > 0 && links.links[0].href.startsWith('http'), 'expected an absolute link');
     assert(links.total === links.links.length && links.truncated === false, 'nothing to truncate here');
     const tree = await session.accessibilityTree();
     assert(tree.nodes.some((n) => n.role === 'heading'), 'expected a heading node');
-    assert(tree.truncated === false, 'example.com fits well under the cap');
+    assert(tree.truncated === false, 'a tiny fixture fits well under the cap');
   });
 });
 
@@ -871,14 +874,33 @@ await test('MCP handshake and tool list', async () => {
   assert(tools.every((t) => t.name && t.description && t.inputSchema), 'every tool needs name/description/inputSchema');
 });
 
-await test('MCP renders a page', async () => {
-  const got = await mcpExchange([
-    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 's', version: '1' } } },
-    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'browser_markdown', arguments: { url: 'https://example.com' } } },
-  ], 2);
-  const call = got.find((m) => m.id === 2);
-  assert(!call?.result?.isError, `tool errored: ${JSON.stringify(call?.result).slice(0, 200)}`);
-  assert((call?.result?.content?.[0]?.text ?? '').includes('Example Domain'), 'unexpected content');
+await test('MCP renders a page and reports warnings in their own block', async () => {
+  const { createServer } = await import('node:http');
+  const server = createServer((req, res) => {
+    if (req.url === '/api') { res.writeHead(429); res.end(); return; }
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end(`<main><h1>Fixture Domain</h1><p>${'fixture body text '.repeat(10)}</p></main>`
+      + (req.url === '/throttled' ? '<script>fetch("/api").then(()=>{},()=>{})</script>' : ''));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const got = await mcpExchange([
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 's', version: '1' } } },
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'browser_markdown', arguments: { url: `${base}/` } } },
+      { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'browser_markdown', arguments: { url: `${base}/throttled`, waitUntil: 'idle' } } },
+    ], 3);
+    const call = got.find((m) => m.id === 2);
+    assert(!call?.result?.isError, `tool errored: ${JSON.stringify(call?.result).slice(0, 200)}`);
+    assert((call?.result?.content?.[0]?.text ?? '').includes('Fixture Domain'), 'unexpected content');
+    assert(call.result.content.length === 1, `a clean page carried a warning: ${JSON.stringify(call.result.content)}`);
+    const throttled = got.find((m) => m.id === 3)?.result?.content ?? [];
+    assert(throttled[0]?.text?.includes('Fixture Domain')
+      && throttled.slice(1).some((block) => /^\[agent-browser warning\] .*HTTP 429/.test(block.text)),
+      `no separate rate-limit warning block: ${JSON.stringify(throttled).slice(0, 400)}`);
+  } finally {
+    server.close();
+  }
 });
 
 await test('MCP screenshot returns an image block', async () => {
