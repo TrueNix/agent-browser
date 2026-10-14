@@ -13,3 +13,6 @@ kitesurf-screenshot.png
 .DS_Store
 .idea/
 .vscode/
+
+# graphify knowledge graph (generated locally)
+graphify-out/
